@@ -1,0 +1,15 @@
+- Driver setup (per Arducam):
+  - Download installer: `wget -O install_pivariety_pkgs.sh https://github.com/ArduCAM/Arducam-Pivariety-V4L2-Driver/releases/download/install_script/install_pivariety_pkgs.sh && chmod +x install_pivariety_pkgs.sh`
+  - Install packages (order matters):
+    - `./install_pivariety_pkgs.sh -p libcamera_dev`
+    - `./install_pivariety_pkgs.sh -p libcamera_apps`
+    - `./install_pivariety_pkgs.sh -p 64mp_pi_hawk_eye_kernel_driver`
+  - Add overlay in `config.txt` and reboot:
+    - Bookworm/Trixie: `/boot/firmware/config.txt`
+    - Bullseye: `/boot/config.txt`
+    - Use `dtoverlay=arducam-64mp` (CAM1) or `dtoverlay=arducam-64mp,cam0` (CAM0 on dual-port boards).
+- Test connection:
+  - List cameras: `rpicam-still --list-cameras` (Bookworm/Trixie) or `libcamera-still --list-cameras` (Bullseye).
+  - Live preview: `rpicam-still -t 0` (or `libcamera-still -t 0` on Bullseye).
+  - Capture a still: `rpicam-still -t 5000 -o /tmp/arducam-test.jpg` (or `libcamera-still -t 5000 -o /tmp/arducam-test.jpg`).
+  - Optional: check detection with `dmesg | rg -i "imx519|arducam|camera"` if you have `rg` installed.
