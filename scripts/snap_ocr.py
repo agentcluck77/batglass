@@ -2,52 +2,47 @@
 """Take a single photo from the Arducam, save it, and run OCR."""
 
 import argparse
+import subprocess
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
-# Allow importing sibling module
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-from ocr_camera import clean_text, parse_roi, preprocess, rotate_frame
+from camera_ocr.ocr import clean_text, parse_roi, preprocess, rotate_frame
 
 try:
     import cv2
 except ImportError:
     cv2 = None
 
-try:
-    from picamera2 import Picamera2
-except ImportError:
-    Picamera2 = None
-
-import pytesseract
+import pytesseract  # noqa: E402
 
 CAPTURES_DIR = Path(__file__).resolve().parent.parent / "captures"
 
 
-def snap(width: int, height: int) -> "cv2.Mat":
-    """Capture a single still frame and return it."""
-    picam2 = Picamera2()
-    config = picam2.create_still_configuration(main={"size": (width, height)})
-    picam2.configure(config)
-    picam2.start()
-    time.sleep(1.0)
-    frame = picam2.capture_array("main")
-    picam2.stop()
-    picam2.close()
-    return frame
-
-
-def save_image(frame, output_dir: Path) -> Path:
-    """Save frame as a timestamped JPEG and return the path."""
+def snap(width: int, height: int, output_dir: Path) -> Path:
+    """Capture a focused still using rpicam-still and return the saved path."""
     output_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     path = output_dir / f"snap_{ts}.jpg"
-    # picamera2 returns RGB; cv2.imwrite expects BGR
-    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(str(path), bgr)
+    cmd = [
+        "rpicam-still",
+        "--width", str(width),
+        "--height", str(height),
+        "--autofocus-mode", "auto",
+        "--output", str(path),
+        "--nopreview",
+        "--timeout", "3000",
+    ]
+    print("Capturing with autofocus...")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr)
+        raise RuntimeError(f"rpicam-still failed (exit {result.returncode})")
     return path
 
 
@@ -84,17 +79,16 @@ def main() -> int:
     if cv2 is None:
         print("Missing dependency: opencv-python. Install with uv.", file=sys.stderr)
         return 1
-    if Picamera2 is None:
-        print("Missing dependency: picamera2. Install via apt.", file=sys.stderr)
-        return 1
 
-    # Capture
-    print("Capturing image...")
-    frame = snap(args.width, args.height)
-
-    # Save
-    saved_path = save_image(frame, args.output_dir)
+    # Capture with rpicam-still (handles autofocus natively)
+    saved_path = snap(args.width, args.height, args.output_dir)
     print(f"Saved: {saved_path}")
+
+    # Load the saved image for OCR
+    frame = cv2.imread(str(saved_path))
+    if frame is None:
+        print(f"Failed to load captured image: {saved_path}", file=sys.stderr)
+        return 1
 
     # OCR
     ocr_frame = frame
@@ -104,7 +98,7 @@ def main() -> int:
     if args.rotate:
         ocr_frame = rotate_frame(ocr_frame, args.rotate)
 
-    processed = preprocess(ocr_frame, input_is_rgb=True, scale=args.scale, threshold=args.threshold)
+    processed = preprocess(ocr_frame, input_is_rgb=False, scale=args.scale, threshold=args.threshold)
     config = f"--oem {args.oem} --psm {args.psm}"
     text = clean_text(pytesseract.image_to_string(processed, lang=args.lang, config=config))
 

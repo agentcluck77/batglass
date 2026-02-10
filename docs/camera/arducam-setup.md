@@ -1,15 +1,29 @@
-- Driver setup (per Arducam):
-  - Download installer: `wget -O install_pivariety_pkgs.sh https://github.com/ArduCAM/Arducam-Pivariety-V4L2-Driver/releases/download/install_script/install_pivariety_pkgs.sh && chmod +x install_pivariety_pkgs.sh`
-  - Install packages (order matters):
-    - `./install_pivariety_pkgs.sh -p libcamera_dev`
-    - `./install_pivariety_pkgs.sh -p libcamera_apps`
-    - `./install_pivariety_pkgs.sh -p 64mp_pi_hawk_eye_kernel_driver`
-  - Add overlay in `config.txt` and reboot:
-    - Bookworm/Trixie: `/boot/firmware/config.txt`
-    - Bullseye: `/boot/config.txt`
-    - Use `dtoverlay=arducam-64mp` (CAM1) or `dtoverlay=arducam-64mp,cam0` (CAM0 on dual-port boards).
-- Test connection:
-  - List cameras: `rpicam-still --list-cameras` (Bookworm/Trixie) or `libcamera-still --list-cameras` (Bullseye).
-  - Live preview: `rpicam-still -t 0` (or `libcamera-still -t 0` on Bullseye).
-  - Capture a still: `rpicam-still -t 5000 -o /tmp/arducam-test.jpg` (or `libcamera-still -t 5000 -o /tmp/arducam-test.jpg`).
-  - Optional: check detection with `dmesg | rg -i "imx519|arducam|camera"` if you have `rg` installed.
+Arducam 64MP (Hawkeye) Setup
+
+1. Install Arducam Pivariety stack
+- `wget -O install_pivariety_pkgs.sh https://github.com/ArduCAM/Arducam-Pivariety-V4L2-Driver/releases/download/install_script/install_pivariety_pkgs.sh`
+- `chmod +x install_pivariety_pkgs.sh`
+- `./install_pivariety_pkgs.sh -p libcamera_dev`
+- `./install_pivariety_pkgs.sh -p libcamera_apps`
+- `./install_pivariety_pkgs.sh -p 64mp_pi_hawk_eye_kernel_driver`
+
+2. Configure overlay (Bookworm/Trixie)
+- Edit `/boot/firmware/config.txt`
+- Set:
+  - `camera_auto_detect=0`
+  - `dtoverlay=arducam-64mp,cam0`
+- Reboot: `sudo reboot`
+
+3. Verify camera
+- `rpicam-still --list-cameras`
+- Expected sensor name: `arducam_64mp`
+- `ls -l /usr/share/libcamera/ipa/rpi/pisp/arducam_64mp.json`
+- `rpicam-still -t 1000 -o /tmp/arducam-test.jpg`
+
+4. Verify OCR CLI
+- Quick test: `uv run scripts/ocr_camera.py capture-interval --interval-ms 1000 --no-save --count 3`
+- Continuous mode: `uv run scripts/ocr_camera.py capture-interval --interval-ms 1000 --no-save`
+
+Troubleshooting
+- Error `arducam_64mp.json not found` means mixed stack.
+- Keep `dtoverlay=arducam-64mp,cam0` only when Arducam Pivariety packages are installed.

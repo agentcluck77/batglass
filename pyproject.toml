@@ -1,0 +1,23 @@
+[project]
+name = "batglass"
+version = "0.1.0"
+description = "OCR camera project for Raspberry Pi"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python>=4.8",
+    "pytesseract>=0.3",
+    "pillow>=10.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]

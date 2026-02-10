@@ -1,2 +1,13 @@
-captures/*.jpg
-captures/*.png
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Captures and test images
+captures/*
+photos/*
+
+# IDE
+.vscode/
+.idea/
