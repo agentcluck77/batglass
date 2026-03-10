@@ -8,6 +8,11 @@ __pycache__/
 captures/*
 photos/*
 
+#vlm
+vlm/
+models/
+llama.cpp/
+
 # IDE
 .vscode/
 .idea/
