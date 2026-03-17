@@ -1,0 +1,3 @@
+[submodule "hardware/WM8960-Audio-HAT"]
+	path = hardware/WM8960-Audio-HAT
+	url = https://github.com/waveshare/WM8960-Audio-HAT

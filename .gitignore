@@ -6,6 +6,7 @@ __pycache__/
 
 # Captures and test images
 captures/*
+!captures/.gitkeep
 photos/*
 
 #vlm
