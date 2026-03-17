@@ -1,2 +1,4 @@
 captures/*.jpg
 captures/*.png
+__pycache__/
+*.jpg
