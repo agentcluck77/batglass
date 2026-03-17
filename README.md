@@ -1,66 +1,110 @@
-# BatGlass OCR Camera CLI
+# BatGlass
 
-A modular command-line tool to test OCR on your camera feed (Picamera2) or image files using Tesseract.
+Smart glasses firmware for Raspberry Pi — modular monorepo combining proximity-based audio feedback and OCR/VLM image capture.
 
-## What It Does
-- Live camera preview.
-- Capture one frame and run OCR.
-- Capture frames on an interval and run OCR repeatedly.
-- Run OCR on an existing image file.
-- Print plain text output with:
-  - average confidence
-  - bounding boxes
-  - timing metrics
-- Save artifacts to `photos/`:
-  - captured frame (`.jpg`)
-  - annotated OCR frame (`_annotated.jpg`)
-  - OCR metadata (`.json`)
+## Modules
 
-## Project Layout
-- `src/camera_ocr/cli.py`: CLI layer.
-- `src/camera_ocr/camera.py`: camera and image input layer.
-- `src/camera_ocr/ocr.py`: OCR + preprocessing layer.
-- `scripts/ocr_camera.py`: launcher script.
+| Module | Entry Point | Description |
+|---|---|---|
+| `camera_ocr` | `batglass-ocr` | OCR camera CLI (Picamera2 + Tesseract) |
+| `camera_ocr.snap_cli` | `batglass-snap` | Snap a photo and run OCR or VLM |
+| `proximity` | `batglass-beep` | HC-SR04 ultrasonic sensor + WM8960 beeper |
 
-## Requirements
-- Python 3.11+
-- Python deps from `pyproject.toml` (`opencv-python`, `pytesseract`, `numpy`, `pillow`)
-- System deps:
-  - `tesseract-ocr`
-  - `libtesseract-dev`
-  - `python3-picamera2` (for camera commands)
+## Hardware
+
+- Arducam 64MP (IMX519 / Hawkeye) — camera ribbon to Pi
+- HC-SR04 — ultrasonic sensor on GPIO 23 (TRIG) / 24 (ECHO)
+- WM8960 Audio HAT — driver in `hardware/WM8960-Audio-HAT/`
+
+See `docs/hardware.md` for full setup.
 
 ## Quick Start
+
 ```bash
 uv sync
+uv pip install -e .
 sudo apt install -y tesseract-ocr libtesseract-dev python3-picamera2
 ```
 
+For Ollama/VLM support:
 ```bash
-./.venv/bin/python scripts/ocr_camera.py --help
+uv pip install -e ".[vlm]"
 ```
 
-## Usage Examples
+## Usage
+
+### OCR camera (live / interval)
+
 ```bash
-# Preview camera (press q or Esc to quit)
-# Requires a graphical session (X/Wayland).
-uv run scripts/ocr_camera.py preview
+# Live preview (requires graphical session)
+batglass-ocr preview
 
 # Capture once and OCR
-uv run scripts/ocr_camera.py capture-once
+batglass-ocr capture-once
 
-# Capture every 1s, 5 frames
-uv run scripts/ocr_camera.py capture-interval --interval-ms 1000 --count 5
+# Capture every 1s for 5 frames
+batglass-ocr capture-interval --interval-ms 1000 --count 5
 
-# Capture indefinitely without saving files (stop with Ctrl+C)
-uv run scripts/ocr_camera.py capture-interval --interval-ms 1000 --no-save
-
-# OCR from file
-uv run scripts/ocr_camera.py ocr-from-file arducam-test.jpg
+# OCR from an existing image file
+batglass-ocr ocr-from-file arducam-test.jpg
 ```
 
-## Optional Module Entry
-If you run directly from `src`:
+### Snap + OCR
+
 ```bash
-PYTHONPATH=src ./.venv/bin/python -m camera_ocr --help
+# Snap with autofocus and run Tesseract OCR
+batglass-snap
+
+# Use a vision LLM (Ollama) instead
+batglass-snap --llm --model moondream
+
+# OCR an existing image
+batglass-snap --image captures/snap_2026-02-10_103151.jpg
+```
+
+### Proximity beep
+
+```bash
+# Start the proximity beep loop (Ctrl+C to stop)
+batglass-beep
+```
+
+Or run the module directly:
+```bash
+uv run python -m proximity
+```
+
+## Project Layout
+
+```
+src/
+  camera_ocr/
+    camera.py       # Picamera2 + image file input
+    ocr.py          # Tesseract OCR pipeline
+    snap_cli.py     # Snap CLI (rpicam-still + OCR/VLM)
+    vlm.py          # Optional Ollama VLM backend
+    cli.py          # OCR camera CLI
+  proximity/
+    sensor.py       # HC-SR04 distance measurement
+    beep.py         # WM8960 audio beep output
+    __main__.py     # Proximity beep loop
+scripts/
+  ocr_camera.py     # Shim → batglass-ocr
+  snap_ocr.py       # Shim → batglass-snap
+hardware/
+  WM8960-Audio-HAT/ # Audio HAT driver (submodule)
+captures/           # Saved snapshots (gitignored)
+photos/             # OCR artifacts (gitignored)
+docs/               # Setup and hardware docs
+```
+
+## System Dependencies
+
+```bash
+sudo apt install -y \
+  tesseract-ocr \
+  libtesseract-dev \
+  python3-picamera2 \
+  sox \
+  alsa-utils
 ```

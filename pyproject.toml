@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/camera_ocr", "src/proximity"]
+packages = ["src/camera_ocr", "src/proximity", "src/batglass"]
 
 [project]
 name = "batglass"
@@ -15,6 +15,9 @@ dependencies = [
     "pytesseract>=0.3",
     "pillow>=10.0",
     "numpy>=1.24",
+    "piper-tts>=1.4.1",
+    "pathvalidate>=3.3.1",
+    "rapidocr-onnxruntime>=1.4.4",
 ]
 
 [project.optional-dependencies]

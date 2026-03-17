@@ -13,7 +13,9 @@ photos/*
 vlm/
 models/
 llama.cpp/
+whisper.cpp/
 
 # IDE
 .vscode/
 .idea/
+.mcp.json
