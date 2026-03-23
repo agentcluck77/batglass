@@ -19,3 +19,9 @@ whisper.cpp/
 .vscode/
 .idea/
 .mcp.json
+
+# Local Hailo/vendor artifacts
+reference/hailo-apps/
+hardware/hailo/
+hailort.log
+assets/fugghhh.wav

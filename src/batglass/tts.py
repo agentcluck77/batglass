@@ -39,8 +39,11 @@ class TtsSpeaker:
             piper.stdin.write(text.encode())
             piper.stdin.close()
             self._pipe(piper.stdout, aplay.stdin)
-            aplay.stdin.close()
         finally:
+            try:
+                aplay.stdin.close()
+            except BrokenPipeError:
+                pass
             piper.wait()
             aplay.wait()
 
@@ -78,7 +81,10 @@ class TtsSpeaker:
             pass
         finally:
             pipe_thread.join()
-            aplay.stdin.close()
+            try:
+                aplay.stdin.close()
+            except BrokenPipeError:
+                pass
             piper.wait()
             aplay.wait()
 
@@ -87,9 +93,13 @@ class TtsSpeaker:
     # ------------------------------------------------------------------
 
     def _start_piper(self) -> subprocess.Popen:
+        import shutil
+        piper_bin = shutil.which("piper") or str(
+            Path(__file__).resolve().parents[2] / ".venv/bin/piper"
+        )
         return subprocess.Popen(
             [
-                "piper",
+                piper_bin,
                 "--model", self._model,
                 "--output-raw",
             ],

@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from camera_ocr.camera import to_bgr
+
 if TYPE_CHECKING:
     from batglass.ocr_engine import TesseractOcrEngine
     from batglass.tts import TtsSpeaker
@@ -36,8 +38,9 @@ class OcrMode:
 
         frame = self._camera.capture_frame()
         t_capture = time.perf_counter()
+        frame_bgr = to_bgr(frame, input_is_rgb=getattr(self._camera, "output_is_rgb", False))
 
-        result = self._ocr.run(frame)
+        result = self._ocr.run(frame_bgr)
         t_ocr = time.perf_counter()
 
         from batglass.ocr_engine import TesseractOcrEngine
@@ -66,7 +69,7 @@ class OcrMode:
         # Save frame for VLM
         image_path = Path("/tmp/batglass_ocr_frame.jpg")
         import cv2
-        cv2.imwrite(str(image_path), frame)
+        cv2.imwrite(str(image_path), frame_bgr)
 
         tokens = self._vlm.run(
             image_path=image_path,

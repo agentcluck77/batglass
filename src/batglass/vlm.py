@@ -1,4 +1,8 @@
-"""VLM module — wraps llama-mtmd-cli and streams tokens from stdout."""
+"""VLM module — wraps llama-mtmd-cli and streams tokens from stdout.
+
+llama-mtmd-cli writes GGML logs to stderr and generated tokens to stdout.
+We capture stdout for the response and discard stderr noise.
+"""
 
 from __future__ import annotations
 
@@ -84,26 +88,22 @@ class VlmRunner:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _stream_tokens(proc: subprocess.Popen, chunk: int = 16) -> Iterator[str]:
-        """Read stdout in small chunks and yield non-empty strings."""
+    def _stream_tokens(proc: subprocess.Popen, chunk: int = 256) -> Iterator[str]:
+        """Stream generated tokens from stdout.
+
+        llama-mtmd-cli writes the response directly to stdout, cleanly separated
+        from the GGML log noise on stderr. We yield the full response as one token.
+        """
         buf = b""
         while True:
             data = proc.stdout.read(chunk)
             if not data:
-                if buf:
-                    yield buf.decode("utf-8", errors="replace")
                 break
             buf += data
-            # Try to decode; if we're in the middle of a multi-byte char,
-            # hold the remainder in buf until the next chunk.
-            try:
-                text = buf.decode("utf-8")
-                buf = b""
-                if text:
-                    yield text
-            except UnicodeDecodeError:
-                # incomplete multi-byte sequence — wait for more bytes
-                pass
+
+        text = buf.decode("utf-8", errors="replace").strip()
+        if text:
+            yield text
 
     @staticmethod
     def _make_dummy_image() -> Path:

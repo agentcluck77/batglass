@@ -38,10 +38,18 @@ class CameraSource(Protocol):
 class Picamera2Source:
     output_is_rgb = True
 
-    def __init__(self, width: int, height: int, warmup_seconds: float = 1.0):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        warmup_seconds: float = 1.0,
+        autofocus_enabled: bool = True,
+    ):
         self._width = width
         self._height = height
         self._warmup_seconds = warmup_seconds
+        self._autofocus_enabled = autofocus_enabled
+        self._autofocus_available = False
         self._picam2 = None
         self._started = False
 
@@ -59,6 +67,9 @@ class Picamera2Source:
             self._picam2.start()
             time.sleep(self._warmup_seconds)
             self._started = True
+            self._autofocus_available = self._detect_autofocus()
+            if self._autofocus_available:
+                self._run_autofocus_cycle(reason="startup")
         except IndexError as exc:
             self._safe_close()
             raise RuntimeError(
@@ -71,8 +82,13 @@ class Picamera2Source:
             raise RuntimeError(f"Failed to initialize camera: {exc}") from exc
 
     def capture_frame(self):
+        return self._capture_frame(autofocus=True)
+
+    def _capture_frame(self, autofocus: bool):
         if not self._started or self._picam2 is None:
             raise RuntimeError("Camera is not started")
+        if autofocus and self._autofocus_available:
+            self._run_autofocus_cycle(reason="capture")
         return self._picam2.capture_array("main")
 
     def stop(self) -> None:
@@ -82,6 +98,7 @@ class Picamera2Source:
         self._picam2.stop()
         self._picam2.close()
         self._picam2 = None
+        self._autofocus_available = False
         self._started = False
 
     def _safe_close(self) -> None:
@@ -92,7 +109,38 @@ class Picamera2Source:
         except Exception:
             pass
         self._picam2 = None
+        self._autofocus_available = False
         self._started = False
+
+    def _detect_autofocus(self) -> bool:
+        if not self._autofocus_enabled or self._picam2 is None:
+            return False
+
+        camera_controls = getattr(self._picam2, "camera_controls", {})
+        if "AfMode" not in camera_controls or not hasattr(self._picam2, "autofocus_cycle"):
+            print("[camera] autofocus not supported; using fixed-focus capture")
+            return False
+        return True
+
+    def _run_autofocus_cycle(self, reason: str) -> None:
+        if self._picam2 is None:
+            return
+
+        try:
+            ok = bool(self._picam2.autofocus_cycle(wait=True))
+        except Exception as exc:
+            print(f"[camera] autofocus {reason} failed ({exc})")
+            self._autofocus_available = False
+            return
+
+        if reason != "startup" and ok:
+            return
+
+        metadata = self._picam2.capture_metadata()
+        print(
+            f"[camera] autofocus {reason}: "
+            f"ok={ok} state={metadata.get('AfState')} lens={metadata.get('LensPosition')}"
+        )
 
     def preview(self) -> int:
         if cv2 is None:
@@ -106,7 +154,7 @@ class Picamera2Source:
         self.start()
         try:
             while True:
-                frame = self.capture_frame()
+                frame = self._capture_frame(autofocus=False)
                 display = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 cv2.imshow("OCR Camera Preview (q to quit)", display)
                 key = cv2.waitKey(1) & 0xFF

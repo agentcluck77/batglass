@@ -79,8 +79,8 @@ echo "Hello." | uv run piper \
 whisper-cli -m whisper.cpp/models/ggml-base.en.bin \
   -f /tmp/test.wav -t 4 --no-timestamps 2>/dev/null
 
-# Camera — capture still
-rpicam-still -t 500 --immediate -o /tmp/test.jpg
+# Camera — capture still with autofocus
+rpicam-still -t 3000 --width 1280 --height 720 --autofocus-mode auto -o /tmp/test.jpg
 ```
 
 ### Audio device
@@ -105,10 +105,15 @@ rpicam-still -t 500 --immediate -o /tmp/test.jpg
 | moondream2 GGUF downloaded | ✅ `models/moondream2/` (f16, 2.7 GB text + 868 MB mmproj) |
 | whisper.cpp built | ✅ `whisper.cpp/build/bin/whisper-cli`, model at `whisper.cpp/models/ggml-base.en.bin` |
 | Piper TTS installed | ✅ `piper-tts` via uv, voice at `models/piper/en_US-lessac-medium.onnx` |
-| Hailo-10H AI HAT+ 2 | ⚠️ Hardware detected (`lspci`), HailoRT driver not yet installed |
-| RapidOCR integrated | ❌ |
-| Button GPIO input | ❌ |
-| Orchestrator / main loop | ❌ |
+| Hailo-10H AI HAT+ 2 | ✅ Working with HailoRT 5.2.0 and `Qwen2-VL-2B-Instruct`; manual Hailo install still required |
+| `src/batglass/tts.py` (TtsSpeaker) | ✅ Phase 1 complete |
+| `src/batglass/ocr_engine.py` + `modes/ocr.py` | ✅ Phase 2 complete |
+| `src/batglass/vlm.py` (VlmRunner) | ✅ Phase 3 complete — stdout capture, working |
+| `src/batglass/stt.py` (SttRunner) | ✅ Phase 4 complete |
+| `src/batglass/modes/scene.py` (SceneMode) | ✅ Phase 5 complete |
+| Button GPIO + dispatcher (`src/buttons/`) | ✅ Phase 6 complete — STT wired into scene_button |
+| `batglass.service` systemd unit | ✅ Phase 7 complete |
+| Hardening (thermal, config, error TTS) | ❌ Phase 8 pending |
 
 ---
 
@@ -428,7 +433,12 @@ See `docs/hardware.md` for driver install instructions.
 
 | Upgrade | Status | Unlocks |
 |---------|--------|---------|
-| HailoRT driver install | ❌ next priority after prototype | <1s VLM inference, OCR fallback under 1s |
-| Rebuild llama.cpp with `GGML_HAILO=ON` | ❌ after driver | Offloads VLM to Hailo-10H |
-| Swap moondream2 → InternVL2-2B Q4_K_M | ❌ after Hailo working | Better scene description quality |
+> ⚠️ **llama.cpp has no Hailo backend.** Hailo uses compiled `.hef` model files via HailoRT API — not GGUF.
+> Prototype remains CPU + llama.cpp. Hailo is a separate future inference path.
+
+| Upgrade | Status | Unlocks |
+|---------|--------|---------|
+| HailoRT driver install (`apt install hailo-all`) | ❌ install now | Activates `/dev/hailo0`, enables future HailoRT work |
+| HailoRT Python API + `.hef` VLM model | ❌ future | <1s VLM via Hailo Model Zoo (LLaMA-3.2 .hef) |
+| Swap moondream2 → InternVL2-2B Q4_K_M | ❌ future | Better CPU scene description quality |
 | Hands-free activation | ❌ future | ReSpeaker HAT + wake-word |
