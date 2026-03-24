@@ -1,0 +1,20 @@
+[Unit]
+Description=BatGlass smart glasses daemon
+After=network.target
+
+[Service]
+Type=simple
+User=aloysius
+WorkingDirectory=/home/aloysius/batglass
+Environment=PYTHONPATH=/home/aloysius/batglass/src:/home/aloysius/batglass/reference/hailo-apps
+Environment=hailort_version=5.2.0
+Environment=PATH=/home/aloysius/batglass/llama.cpp/build/bin:/home/aloysius/batglass/whisper.cpp/build/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/bin/bash -c "kill -9 $(lsof -t /dev/gpiochip0 2>/dev/null) 2>/dev/null || true"
+ExecStart=/home/aloysius/batglass/.venv/bin/python -m buttons.__main__
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

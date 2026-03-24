@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Captures and test images
+captures/*
+!captures/.gitkeep
+photos/*
+
+#vlm
+vlm/
+models/
+llama.cpp/
+whisper.cpp/
+
+# IDE
+.vscode/
+.idea/
+.mcp.json
+
+# Local Hailo/vendor artifacts
+reference/hailo-apps/
+hardware/hailo/
+hailort.log
+assets/fugghhh.wav

@@ -1,0 +1,120 @@
+@startuml
+title OCR Camera CLI - src/camera_ocr
+
+skinparam classAttributeIconSize 0
+hide empty methods
+hide empty fields
+
+package "CLI Layer" {
+  class OcrCameraCli {
+    +run(argv: list[str]) : int
+    -_build_parser() : ArgumentParser
+    -_cmd_preview(args) : int
+    -_cmd_capture_once(args) : int
+    -_cmd_capture_interval(args) : int
+    -_cmd_ocr_from_file(args) : int
+  }
+
+  class ResultPrinter {
+    +print_result(result: OcrResult) : None
+  }
+
+  class ArtifactWriter {
+    +save_frame(frame, name_hint: str, input_is_rgb: bool) : Path
+    +save_result(result: OcrResult, name_hint: str) : Path
+    +save_annotated(result: OcrResult, name_hint: str) : Path
+  }
+}
+
+package "Camera Layer" {
+  interface CameraSource {
+    +start() : None
+    +capture_frame() : ndarray
+    +stop() : None
+    +preview() : int
+  }
+
+  class Picamera2Source {
+    +output_is_rgb : bool
+    +start() : None
+    +capture_frame() : ndarray
+    +stop() : None
+    +preview() : int
+  }
+
+  class ImageFileReader {
+    +output_is_rgb : bool
+    +read(path: str) : ndarray
+  }
+}
+
+package "OCR Layer" {
+  class OcrConfig {
+    +lang : str
+    +psm : int
+    +oem : int
+    +rotate : int
+    +scale : float
+    +threshold : bool
+    +input_is_rgb : bool
+  }
+
+  class OcrService {
+    +recognize(frame, cfg: OcrConfig) : OcrResult
+  }
+
+  class TesseractAdapter {
+    +image_to_data(processed, cfg: OcrConfig) : dict
+    +image_to_string(processed, cfg: OcrConfig) : str
+  }
+
+  class OcrResult {
+    +text : str
+    +avg_confidence : float
+    +timing_ms : dict
+    +boxes : list[OcrBox]
+    +to_dict() : dict
+  }
+
+  class OcrBox {
+    +text : str
+    +confidence : float
+    +x : int
+    +y : int
+    +w : int
+    +h : int
+  }
+}
+
+OcrCameraCli --> Picamera2Source
+OcrCameraCli --> ImageFileReader
+OcrCameraCli --> OcrService
+OcrCameraCli --> ResultPrinter
+OcrCameraCli --> ArtifactWriter
+Picamera2Source ..|> CameraSource
+OcrService --> OcrConfig
+OcrService --> TesseractAdapter
+OcrService --> OcrResult
+OcrResult "1" *-- "*" OcrBox
+
+note bottom of OcrCameraCli
+Modules:
+- src/camera_ocr/cli.py
+- src/camera_ocr/camera.py
+- src/camera_ocr/ocr.py
+
+Subcommands:
+- preview
+- capture-once
+- capture-interval
+- ocr-from-file
+
+Output:
+- plain text OCR result
+- confidence scores
+- bounding boxes
+- timing metrics
+
+Artifacts saved under ./photos
+end note
+@enduml

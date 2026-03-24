@@ -1,0 +1,17 @@
+{
+    "image": "ghcr.io/htgar/debian-brew:latest",
+    "remoteUser": "dev-user",
+    "containerUser": "dev-user",
+    "updateRemoteUserUID": true,
+    "workspaceFolder": "/workspaces/batglass",
+    "securityOpt": ["label=disable"],
+    "postCreateCommand": "sudo chown -R $(id -u):$(id -g) /home/linuxbrew/.linuxbrew && bash .devcontainer/build.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "charliermarsh.ruff"
+            ]
+        }
+    }
+}

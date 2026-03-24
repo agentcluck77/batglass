@@ -1,0 +1,21 @@
+# BatGlass configuration
+
+ocr:
+  # Engine to use for text reading.
+  # "tesseract" — fast (~250ms), falls back to VLM if confidence < vlm_fallback_threshold
+  # "vlm"       — always use moondream2, slower (~6s) but handles any font/angle
+  engine: vlm
+  vlm_fallback_threshold: 20  # ignored when engine=vlm
+
+scene:
+  max_hold_duration_s: 30    # max recording length before auto-stop
+  max_tokens: 100
+
+tts:
+  model: models/piper/en_US-lessac-medium.onnx
+  audio_device: hw:wm8960soundcard
+
+stt:
+  model: whisper.cpp/models/ggml-base.en.bin
+  audio_device: hw:wm8960soundcard
+  threads: 4

@@ -1,0 +1,9 @@
+# Brewfile - Homebrew dependencies for devcontainer
+tap "homebrew/bundle"
+
+# Essential CLI tools
+brew "gh"
+brew "git"
+brew "jq"
+brew "ripgrep"
+brew "uv"
