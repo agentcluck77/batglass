@@ -13,7 +13,7 @@ scene:
 
 tts:
   model: models/piper/en_US-lessac-medium.onnx
-  audio_device: hw:wm8960soundcard
+  audio_device: plughw:wm8960soundcard
 
 stt:
   model: whisper.cpp/models/ggml-base.en.bin

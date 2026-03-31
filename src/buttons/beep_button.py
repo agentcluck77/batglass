@@ -8,7 +8,7 @@ import time
 
 import lgpio
 
-from proximity.beep import Beeper
+from proximity.beep import Beeper, _BEEP_DURATION_S
 from proximity.sensor import ProximitySensor
 
 # -- config -------------------------------------------------------------------
@@ -32,17 +32,21 @@ class BeepButton:
         try:
             while True:
                 if _button_pressed(self._chip, BUTTON_PIN):
+                    print(f"[GPIO {BUTTON_PIN}] beep — echolocation toggle")
                     self._toggle()
         finally:
             self._active = False
+            self._beeper.close()
             self._sensor.close()
             lgpio.gpiochip_close(self._chip)
 
     def _toggle(self) -> None:
         if self._active:
             self._active = False
+            self._beeper.close()
             print("[beep_button] echolocation OFF")
         else:
+            self._beeper.start()
             self._active = True
             print("[beep_button] echolocation ON")
             self._loop_thread = threading.Thread(target=self._echolocation_loop, daemon=True)
@@ -50,21 +54,29 @@ class BeepButton:
 
     def _echolocation_loop(self) -> None:
         while self._active:
+            t0 = time.monotonic()
             distance = self._sensor.get_distance()
+            elapsed = time.monotonic() - t0
 
             if distance is None:
-                time.sleep(0.5)
+                print("[echolocation] sensor timeout — no echo received")
+                time.sleep(max(0.0, 0.5 - elapsed))
                 continue
 
             print(f"[echolocation] {distance} cm")
 
             if distance > MAX_DISTANCE:
-                time.sleep(0.5)
+                time.sleep(max(0.0, 0.5 - elapsed))
             else:
                 clamped = max(MIN_DISTANCE, min(distance, MAX_DISTANCE))
-                silence = 0.1 + ((clamped - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE)) * 1.4
-                self._beeper.beep()
-                time.sleep(silence)
+                gap = 0.1 + ((clamped - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE)) * 1.4
+                # Write beep + silence as one chunk so the aplay stream is
+                # never starved (preventing xrun/process-exit mid-session).
+                self._beeper.beep(silence_after_s=gap)
+                # Sleep for however much of the cycle remains after the sensor
+                # read, so that write rate matches playback rate.
+                cycle = _BEEP_DURATION_S + gap
+                time.sleep(max(0.0, cycle - elapsed))
 
 
 def _button_pressed(chip: int, pin: int, debounce: float = 0.05) -> bool:

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Run all three button listeners concurrently.
+"""Run all button listeners concurrently.
 
     GPIO 17 — scene description
     GPIO 27 — OCR
     GPIO 22 — beep
+    GPIO 3  — volume up
+    GPIO 4  — volume down
 
 Usage:
     python -m buttons
@@ -19,6 +21,12 @@ from camera_ocr.camera import Picamera2Source
 from buttons.beep_button import BeepButton
 from buttons.ocr_button import OcrButton
 from buttons.scene_button import SceneButton
+from buttons.volume_button import (
+    VOLUME_DOWN_PIN,
+    VOLUME_STEP_PERCENT,
+    VOLUME_UP_PIN,
+    VolumeButton,
+)
 
 
 def main() -> None:
@@ -45,11 +53,15 @@ def main() -> None:
     beep_btn  = BeepButton()
     ocr_btn   = OcrButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
     scene_btn = SceneButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
+    volume_up_btn = VolumeButton(pin=VOLUME_UP_PIN, delta_percent=VOLUME_STEP_PERCENT)
+    volume_down_btn = VolumeButton(pin=VOLUME_DOWN_PIN, delta_percent=-VOLUME_STEP_PERCENT)
 
     threads = [
         threading.Thread(target=beep_btn.run,  name="beep",  daemon=True),
         threading.Thread(target=ocr_btn.run,   name="ocr",   daemon=True),
         threading.Thread(target=scene_btn.run, name="scene", daemon=True),
+        threading.Thread(target=volume_up_btn.run, name="volume-up", daemon=True),
+        threading.Thread(target=volume_down_btn.run, name="volume-down", daemon=True),
     ]
 
     for t in threads:

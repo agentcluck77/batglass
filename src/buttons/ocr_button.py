@@ -61,7 +61,7 @@ class OcrButton:
         try:
             while True:
                 if _button_pressed(self._chip, BUTTON_PIN):
-                    print("[ocr_button] triggered")
+                    print(f"[GPIO {BUTTON_PIN}] OCR — read text aloud")
                     self._handle()
         finally:
             if self._owns_camera:
@@ -83,8 +83,11 @@ class OcrButton:
                 return
             img_path = Path("/tmp/batglass_ocr_btn.jpg")
             cv2.imwrite(str(img_path), frame_bgr)
+            print("[ocr_button] running VLM inference...")
             tokens = self._vlm.run(image_path=img_path, prompt=OCR_PROMPT, max_tokens=150)
+            print("[ocr_button] streaming TTS")
             self._tts.speak_stream(tokens)
+            print("[ocr_button] done")
             return
 
         # Tesseract path
