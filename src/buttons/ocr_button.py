@@ -86,7 +86,7 @@ class OcrButton:
             print("[ocr_button] running VLM inference...")
             tokens = self._vlm.run(image_path=img_path, prompt=OCR_PROMPT, max_tokens=150)
             print("[ocr_button] streaming TTS")
-            self._tts.speak_stream(tokens)
+            self._tts.speak_stream(_tee_tokens(tokens, "[ocr_button] text:"))
             print("[ocr_button] done")
             return
 
@@ -111,7 +111,16 @@ class OcrButton:
         img_path = Path("/tmp/batglass_ocr_btn.jpg")
         cv2.imwrite(str(img_path), frame_bgr)
         tokens = self._vlm.run(image_path=img_path, prompt=OCR_PROMPT, max_tokens=150)
-        self._tts.speak_stream(tokens)
+        self._tts.speak_stream(_tee_tokens(tokens, "[ocr_button] text:"))
+
+
+def _tee_tokens(tokens, label: str):
+    """Yield tokens unchanged while printing them to stdout for debugging."""
+    buf = []
+    for tok in tokens:
+        buf.append(tok)
+        yield tok
+    print(f"{label} {''.join(buf)!r}")
 
 
 def _button_pressed(chip: int, pin: int, debounce: float = 0.05) -> bool:

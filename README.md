@@ -12,7 +12,7 @@ Offline smart glasses software for Raspberry Pi 5. The current stack combines th
 - Arducam 64MP Hawkeye / IMX519 camera
 - Raspberry Pi AI HAT+ 2 with Hailo-10H
 - WM8960 Audio HAT
-- HC-SR04 ultrasonic sensor
+- 2x HC-SR04 ultrasonic sensors
 
 See [docs/hardware.md](docs/hardware.md) for setup notes and device-specific details.
 
@@ -22,7 +22,7 @@ See [docs/hardware.md](docs/hardware.md) for setup notes and device-specific det
 |---|---|---|
 | `batglass-ocr` | `camera_ocr.cli:main` | OCR camera test CLI |
 | `batglass-snap` | `camera_ocr.snap_cli:main` | Single autofocus still capture + OCR/VLM |
-| `batglass-beep` | `proximity.__main__:main` | Proximity beep loop |
+| `batglass-beep` | `proximity.__main__:main` | Dual-sensor proximity beeps |
 | `batglass-buttons` | `buttons.__main__:main` | Full three-button runtime |
 
 ## Button Mapping
@@ -108,6 +108,7 @@ batglass-snap --image captures/snap_2026-02-10_103151.jpg
 
 ```bash
 batglass-beep
+batglass-beep --probe --samples 5
 ```
 
 ## Configuration
@@ -155,8 +156,9 @@ src/
     cli.py          # OCR camera CLI
     snap_cli.py     # rpicam-still capture CLI
   proximity/
-    sensor.py
-    beep.py
+    sensor.py       # HC-SR04 driver
+    beep.py         # persistent stereo aplay beeper
+    controller.py   # dual-sensor left/right scheduler
 run_buttons.sh      # local launcher with Hailo env
 batglass.service    # systemd unit
 docs/               # hardware notes and implementation plan

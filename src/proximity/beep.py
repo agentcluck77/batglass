@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Audio beep output using a persistent aplay process for the WM8960 Audio HAT.
-
-A single aplay subprocess is kept alive for the duration of an echolocation
-session.  Each call to beep() writes one beep tone followed immediately by a
-silence pad as a single PCM chunk, so aplay's buffer stays continuously fed
-and ALSA underruns (xruns) never occur.
-"""
+"""Stereo beep output using a persistent aplay process for the WM8960 Audio HAT."""
 
 from __future__ import annotations
 
@@ -36,7 +30,9 @@ class Beeper:
         device: str = "plughw:wm8960soundcard",
     ) -> None:
         self._device = device
-        self._beep_pcm = _make_beep_pcm()
+        self._left_beep_pcm = _make_beep_pcm(left_gain=1.0, right_gain=0.0)
+        self._right_beep_pcm = _make_beep_pcm(left_gain=0.0, right_gain=1.0)
+        self._both_beep_pcm = _make_beep_pcm(left_gain=1.0, right_gain=1.0)
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()  # serialises start/beep/close calls
 
@@ -67,14 +63,26 @@ class Beeper:
     # Playback
     # ------------------------------------------------------------------
 
-    def beep(self, silence_after_s: float) -> None:
-        """Write one beep tone + silence_after_s of silence to aplay stdin.
+    def beep(
+        self,
+        *,
+        left: bool = False,
+        right: bool = False,
+        silence_after_s: float = 0.0,
+    ) -> None:
+        """Write one stereo beep plus silence to aplay stdin."""
+        if left and right:
+            data = self._both_beep_pcm
+        elif left:
+            data = self._left_beep_pcm
+        elif right:
+            data = self._right_beep_pcm
+        else:
+            return
 
-        Writing both together as a single chunk keeps the ALSA buffer
-        continuously fed, preventing xruns that would kill the process.
-        """
         silence_frames = int(_SAMPLE_RATE * silence_after_s)
-        data = self._beep_pcm + bytes(silence_frames * 2)  # 16-bit mono zeros
+        if silence_frames > 0:
+            data += bytes(silence_frames * 4)  # 16-bit stereo zeros
 
         with self._lock:
             if self._proc is None or self._proc.poll() is not None:
@@ -97,7 +105,7 @@ class Beeper:
                 "-q",
                 "-N",
                 "-D", self._device,
-                "-c", "1",
+                "-c", "2",
                 "-r", str(_SAMPLE_RATE),
                 "-f", "S16_LE",
                 "-t", "raw",
@@ -140,12 +148,16 @@ def _set_wm8960_output_volumes(device: str, value: int) -> None:
         )
 
 
-def _make_beep_pcm() -> bytes:
+def _make_beep_pcm(*, left_gain: float, right_gain: float) -> bytes:
     frame_count = int(_SAMPLE_RATE * _BEEP_DURATION_S)
-    amplitude = int(32767 * _BEEP_AMPLITUDE)
+    left_amplitude = int(32767 * _BEEP_AMPLITUDE * left_gain)
+    right_amplitude = int(32767 * _BEEP_AMPLITUDE * right_gain)
     pcm = bytearray()
     for i in range(frame_count):
         phase = 2.0 * math.pi * _BEEP_FREQUENCY_HZ * (i / _SAMPLE_RATE)
-        sample = int(amplitude * math.sin(phase))
-        pcm += sample.to_bytes(2, byteorder="little", signed=True)
+        wave = math.sin(phase)
+        left_sample = int(left_amplitude * wave)
+        right_sample = int(right_amplitude * wave)
+        pcm += left_sample.to_bytes(2, byteorder="little", signed=True)
+        pcm += right_sample.to_bytes(2, byteorder="little", signed=True)
     return bytes(pcm)

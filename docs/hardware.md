@@ -50,6 +50,17 @@
 - Record mic: `arecord -D hw:wm8960soundcard -f S16_LE -r 16000`
 - Play: `aplay -D hw:wm8960soundcard`
 
-## Proximity — HC-SR04
-- TRIG: GPIO 23, ECHO: GPIO 24
-- Handled by `src/proximity/`
+## Proximity — dual HC-SR04
+- Left sensor:
+  - TRIG: GPIO 23
+  - ECHO: GPIO 24
+- Right sensor:
+  - TRIG: GPIO 12
+  - ECHO: GPIO 16
+- Runtime:
+  - `batglass-beep` runs dual-sensor echolocation with stereo left/right beeps
+  - `batglass-beep --probe --samples 5` prints live distance/timeout readings without audio
+- Wiring note:
+  - `GPIO20/21` must not be used for the second sensor on this build because the WM8960 audio HAT uses the Pi I2S bus.
+  - The software now defaults to `GPIO12 -> TRIG` and `GPIO16 -> ECHO` for the second sensor.
+  - If the right sensor stays silent, re-run the probe with `--right-trig 16 --right-echo 12` to test the swapped mapping.

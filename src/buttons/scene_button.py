@@ -67,8 +67,17 @@ class SceneButton:
         cv2.imwrite(str(image_path), frame_bgr)
         tokens = self._vlm.run(image_path=image_path, prompt=SCENE_PROMPT, max_tokens=MAX_TOKENS)
         print("[scene_button] streaming TTS")
-        self._tts.speak_stream(tokens)
+        self._tts.speak_stream(_tee_tokens(tokens, "[scene_button] text:"))
         print(f"[scene_button] done ({time.perf_counter()-t0:.1f}s total)")
+
+
+def _tee_tokens(tokens, label: str):
+    """Yield tokens unchanged while printing them to stdout for debugging."""
+    buf = []
+    for tok in tokens:
+        buf.append(tok)
+        yield tok
+    print(f"{label} {''.join(buf)!r}")
 
 
 def _button_pressed(chip: int, pin: int, debounce: float = 0.05) -> bool:
