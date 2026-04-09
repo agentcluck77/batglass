@@ -23,10 +23,11 @@ from buttons.ocr_button import OcrButton
 from buttons.scene_button import SceneButton
 from buttons.volume_button import (
     VOLUME_DOWN_PIN,
-    VOLUME_STEP_PERCENT,
+    VOLUME_STEP_DB,
     VOLUME_UP_PIN,
     VolumeButton,
 )
+from proximity.beep import Beeper
 
 
 def main() -> None:
@@ -50,11 +51,20 @@ def main() -> None:
             mmproj=root / "models/moondream2/moondream2-mmproj-f16-20250414.gguf",
         )
 
+    feedback_beeper = Beeper()
     beep_btn  = BeepButton()
     ocr_btn   = OcrButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
     scene_btn = SceneButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
-    volume_up_btn = VolumeButton(pin=VOLUME_UP_PIN, delta_percent=VOLUME_STEP_PERCENT)
-    volume_down_btn = VolumeButton(pin=VOLUME_DOWN_PIN, delta_percent=-VOLUME_STEP_PERCENT)
+    volume_up_btn = VolumeButton(
+        pin=VOLUME_UP_PIN,
+        delta_db=VOLUME_STEP_DB,
+        feedback_beeper=feedback_beeper,
+    )
+    volume_down_btn = VolumeButton(
+        pin=VOLUME_DOWN_PIN,
+        delta_db=-VOLUME_STEP_DB,
+        feedback_beeper=feedback_beeper,
+    )
     threads = [
         threading.Thread(target=beep_btn.run,  name="beep",  daemon=True),
         threading.Thread(target=ocr_btn.run,   name="ocr",   daemon=True),

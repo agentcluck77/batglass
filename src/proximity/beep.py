@@ -21,8 +21,8 @@ _BEEP_AMPLITUDE: Final = 0.35
 # they must be set *before* aplay opens the device.
 _HP_NUMID: Final = 11   # Headphone Playback Volume
 _SPK_NUMID: Final = 13  # Speaker Playback Volume
-# 109/127 ≈ −12 dB — matches the value in wm8960_asound.state.
-HP_SPK_DEFAULT: Final = 109
+# 127/127 is full hardware output on the WM8960 amplifier path.
+HP_SPK_DEFAULT: Final = 127
 
 
 class Beeper:
@@ -98,12 +98,47 @@ class Beeper:
                     self._proc = self._spawn()
             try:
                 self._proc.stdin.write(data)   # type: ignore[union-attr]
-                self._proc.stdin.flush()        # type: ignore[union-attr]
+                self._proc.stdin.flush()       # type: ignore[union-attr]
             except (BrokenPipeError, OSError):
                 detail = _read_process_stderr(self._proc)
                 if detail:
                     print(f"[beep] aplay write failed: {detail}")
                 self._proc = None
+
+    def beep_once(
+        self,
+        *,
+        left: bool = False,
+        right: bool = False,
+        left_gain: float | None = None,
+        right_gain: float | None = None,
+        silence_after_s: float = 0.0,
+    ) -> None:
+        """Play one beep, reusing the persistent player if it is already active."""
+        data = self._beep_data(
+            left=left,
+            right=right,
+            left_gain=left_gain,
+            right_gain=right_gain,
+            silence_after_s=silence_after_s,
+        )
+        if data is None:
+            return
+
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None:
+                self._write_to_proc(self._proc, data)
+                return
+
+            with AUDIO_OUTPUT_LOCK:
+                _set_wm8960_output_volumes(self._device, HP_SPK_DEFAULT)
+                proc = self._spawn()
+                if proc.poll() is not None:
+                    return
+                if self._write_to_proc(proc, data):
+                    self._finish_one_shot(proc)
+                else:
+                    self._terminate_process(proc)
 
     # ------------------------------------------------------------------
     # Internals
@@ -134,6 +169,33 @@ class Beeper:
                 print(f"[beep] aplay exited immediately with code {proc.returncode}")
         return proc
 
+    def _beep_data(
+        self,
+        *,
+        left: bool,
+        right: bool,
+        left_gain: float | None,
+        right_gain: float | None,
+        silence_after_s: float,
+    ) -> bytes | None:
+        if left_gain is not None or right_gain is not None:
+            if left_gain is None or right_gain is None:
+                raise ValueError("left_gain and right_gain must be provided together")
+            data = self._pcm_for_gains(left_gain=left_gain, right_gain=right_gain)
+        elif left and right:
+            data = self._both_beep_pcm
+        elif left:
+            data = self._left_beep_pcm
+        elif right:
+            data = self._right_beep_pcm
+        else:
+            return None
+
+        silence_frames = int(_SAMPLE_RATE * silence_after_s)
+        if silence_frames > 0:
+            data += bytes(silence_frames * 4)  # 16-bit stereo zeros
+        return data
+
     def _pcm_for_gains(self, *, left_gain: float, right_gain: float) -> bytes:
         gains = (_clamp_gain(left_gain), _clamp_gain(right_gain))
         if gains not in self._pcm_cache:
@@ -142,6 +204,32 @@ class Beeper:
                 right_gain=gains[1],
             )
         return self._pcm_cache[gains]
+
+    def _write_to_proc(self, proc: subprocess.Popen | None, data: bytes) -> bool:
+        if proc is None or proc.poll() is not None or proc.stdin is None:
+            return False
+        try:
+            proc.stdin.write(data)
+            proc.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError):
+            detail = _read_process_stderr(proc)
+            if detail:
+                print(f"[beep] aplay write failed: {detail}")
+            if proc is self._proc:
+                self._proc = None
+            return False
+
+    def _finish_one_shot(self, proc: subprocess.Popen) -> None:
+        try:
+            proc.stdin.close()  # type: ignore[union-attr]
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
     def _terminate(self) -> None:
         proc = self._proc
@@ -155,8 +243,17 @@ class Beeper:
         try:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            self._terminate_process(proc)
             proc.wait()
+
+    @staticmethod
+    def _terminate_process(proc: subprocess.Popen) -> None:
+        if proc.poll() is not None:
+            return
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            return
 
 
 def _set_wm8960_output_volumes(device: str, value: int) -> None:
