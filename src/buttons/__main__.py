@@ -4,8 +4,8 @@
     GPIO 17 — scene description
     GPIO 27 — OCR
     GPIO 22 — beep
-    GPIO 3  — volume up
-    GPIO 4  — volume down
+    GPIO 5  — volume up
+    GPIO 6  — volume down
 
 Usage:
     python -m buttons
@@ -55,7 +55,6 @@ def main() -> None:
     scene_btn = SceneButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
     volume_up_btn = VolumeButton(pin=VOLUME_UP_PIN, delta_percent=VOLUME_STEP_PERCENT)
     volume_down_btn = VolumeButton(pin=VOLUME_DOWN_PIN, delta_percent=-VOLUME_STEP_PERCENT)
-
     threads = [
         threading.Thread(target=beep_btn.run,  name="beep",  daemon=True),
         threading.Thread(target=ocr_btn.run,   name="ocr",   daemon=True),

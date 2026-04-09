@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Iterator
 
@@ -11,6 +12,11 @@ from batglass.audio import AUDIO_OUTPUT_LOCK
 
 
 _PIPER_SAMPLE_RATE = 22050
+_PROCESS_EXIT_TIMEOUT_S = 30
+_APLAY_CHANNELS = 2
+_HP_NUMID = 11
+_SPK_NUMID = 13
+_HP_SPK_DEFAULT = 109
 
 
 class TtsSpeaker:
@@ -68,6 +74,7 @@ class TtsSpeaker:
                 remainder = "".join(buf).strip()
                 if remainder:
                     piper.stdin.write(remainder.encode())
+                    piper.stdin.flush()
             except BrokenPipeError:
                 pass
             finally:
@@ -95,12 +102,12 @@ class TtsSpeaker:
         )
 
     def _start_aplay(self) -> subprocess.Popen:
-        return subprocess.Popen(
+        proc = subprocess.Popen(
             [
                 "aplay",
                 "-N",
                 "-D", self._audio_device,
-                "-c", "1",
+                "-c", str(_APLAY_CHANNELS),
                 "-r", str(_PIPER_SAMPLE_RATE),
                 "-f", "S16_LE",
                 "-t", "raw",
@@ -110,9 +117,18 @@ class TtsSpeaker:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
+        time.sleep(0.05)
+        if proc.poll() is not None:
+            detail = self._read_process_stderr(proc)
+            if detail:
+                print(f"[tts] aplay failed to start: {detail}")
+            else:
+                print(f"[tts] aplay exited immediately with code {proc.returncode}")
+        return proc
 
     def _start_pipeline(self) -> tuple[subprocess.Popen, subprocess.Popen, threading.Thread]:
         piper = self._start_piper()
+        _set_wm8960_output_volumes(self._audio_device, _HP_SPK_DEFAULT)
         aplay = self._start_aplay()
         pipe_thread = threading.Thread(
             target=self._pipe,
@@ -127,14 +143,25 @@ class TtsSpeaker:
         """Copy bytes from Piper to aplay until EOF or sink failure."""
         src = piper.stdout
         dst = aplay.stdin
+        tail = b""
         try:
             while True:
                 data = src.read(chunk)
                 if not data:
                     break
-                dst.write(data)
+                stereo, tail = cls._mono_to_stereo(tail + data)
+                if stereo:
+                    dst.write(stereo)
                 dst.flush()
+            if tail:
+                stereo, _ = cls._mono_to_stereo(tail + b"\x00")
+                if stereo:
+                    dst.write(stereo)
+                    dst.flush()
         except (BrokenPipeError, OSError):
+            detail = cls._read_process_stderr(aplay)
+            if detail:
+                print(f"[tts] aplay write failed: {detail}")
             cls._terminate_process(piper)
         finally:
             cls._close_pipe(dst)
@@ -146,13 +173,12 @@ class TtsSpeaker:
         aplay: subprocess.Popen,
         pipe_thread: threading.Thread,
     ) -> None:
-        pipe_thread.join(timeout=5)
+        piper_code = cls._wait_for_exit(piper, timeout=_PROCESS_EXIT_TIMEOUT_S)
+        pipe_thread.join(timeout=_PROCESS_EXIT_TIMEOUT_S)
         if pipe_thread.is_alive():
-            cls._terminate_process(piper)
+            cls._terminate_process(aplay)
             pipe_thread.join(timeout=1)
-
-        piper_code = cls._wait_for_exit(piper)
-        aplay_code = cls._wait_for_exit(aplay)
+        aplay_code = cls._wait_for_exit(aplay, timeout=_PROCESS_EXIT_TIMEOUT_S)
 
         if aplay_code not in (0, None):
             detail = cls._read_process_stderr(aplay)
@@ -201,3 +227,31 @@ class TtsSpeaker:
             return proc.stderr.read().decode("utf-8", errors="replace").strip()
         except Exception:
             return ""
+
+    @staticmethod
+    def _mono_to_stereo(data: bytes) -> tuple[bytes, bytes]:
+        """Duplicate 16-bit mono PCM samples into left/right stereo frames."""
+        usable = len(data) - (len(data) % 2)
+        payload = data[:usable]
+        tail = data[usable:]
+        if not payload:
+            return b"", tail
+        stereo = bytearray(len(payload) * 2)
+        out = 0
+        for i in range(0, len(payload), 2):
+            sample = payload[i : i + 2]
+            stereo[out : out + 2] = sample
+            stereo[out + 2 : out + 4] = sample
+            out += 4
+        return bytes(stereo), tail
+
+
+def _set_wm8960_output_volumes(device: str, value: int) -> None:
+    """Enable WM8960 headphone/speaker amps before playback starts."""
+    card = device.split(":", 1)[1] if ":" in device else device
+    val_str = f"{value},{value}"
+    for numid in (_HP_NUMID, _SPK_NUMID):
+        subprocess.run(
+            ["amixer", "-c", card, "cset", f"numid={numid}", val_str],
+            capture_output=True,
+        )

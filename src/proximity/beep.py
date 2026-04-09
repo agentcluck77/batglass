@@ -6,6 +6,7 @@ from __future__ import annotations
 import math
 import subprocess
 import threading
+import time
 from typing import Final
 
 from batglass.audio import AUDIO_OUTPUT_LOCK
@@ -92,6 +93,9 @@ class Beeper:
                 self._proc.stdin.write(data)   # type: ignore[union-attr]
                 self._proc.stdin.flush()        # type: ignore[union-attr]
             except (BrokenPipeError, OSError):
+                detail = _read_process_stderr(self._proc)
+                if detail:
+                    print(f"[beep] aplay write failed: {detail}")
                 self._proc = None
 
     # ------------------------------------------------------------------
@@ -99,10 +103,9 @@ class Beeper:
     # ------------------------------------------------------------------
 
     def _spawn(self) -> subprocess.Popen:
-        return subprocess.Popen(
+        proc = subprocess.Popen(
             [
                 "aplay",
-                "-q",
                 "-N",
                 "-D", self._device,
                 "-c", "2",
@@ -113,8 +116,16 @@ class Beeper:
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
+        time.sleep(0.05)
+        if proc.poll() is not None:
+            detail = _read_process_stderr(proc)
+            if detail:
+                print(f"[beep] aplay failed to start: {detail}")
+            else:
+                print(f"[beep] aplay exited immediately with code {proc.returncode}")
+        return proc
 
     def _terminate(self) -> None:
         proc = self._proc
@@ -146,6 +157,15 @@ def _set_wm8960_output_volumes(device: str, value: int) -> None:
             ["amixer", "-c", card, "cset", f"numid={numid}", val_str],
             capture_output=True,
         )
+
+
+def _read_process_stderr(proc: subprocess.Popen | None) -> str:
+    if proc is None or proc.stderr is None:
+        return ""
+    try:
+        return proc.stderr.read().decode("utf-8", errors="replace").strip()
+    except Exception:
+        return ""
 
 
 def _make_beep_pcm(*, left_gain: float, right_gain: float) -> bytes:

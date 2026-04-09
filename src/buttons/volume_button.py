@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GPIO 3 / 4 — adjust WM8960 speaker volume."""
+"""GPIO 5 / 6 — adjust WM8960 speaker volume."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from pathlib import Path
 import lgpio
 
 # -- config -------------------------------------------------------------------
-VOLUME_UP_PIN = 3
-VOLUME_DOWN_PIN = 4
+VOLUME_UP_PIN = 5
+VOLUME_DOWN_PIN = 6
 MIXER_CARD_NAME = "wm8960soundcard"
 # `Playback` is the stable master output control on this WM8960 setup.
 MIXER_CONTROL = "Playback"
