@@ -31,9 +31,10 @@ class Beeper:
         device: str = "plughw:wm8960soundcard",
     ) -> None:
         self._device = device
-        self._left_beep_pcm = _make_beep_pcm(left_gain=1.0, right_gain=0.0)
-        self._right_beep_pcm = _make_beep_pcm(left_gain=0.0, right_gain=1.0)
-        self._both_beep_pcm = _make_beep_pcm(left_gain=1.0, right_gain=1.0)
+        self._pcm_cache: dict[tuple[float, float], bytes] = {}
+        self._left_beep_pcm = self._pcm_for_gains(left_gain=1.0, right_gain=0.0)
+        self._right_beep_pcm = self._pcm_for_gains(left_gain=0.0, right_gain=1.0)
+        self._both_beep_pcm = self._pcm_for_gains(left_gain=1.0, right_gain=1.0)
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()  # serialises start/beep/close calls
 
@@ -69,10 +70,16 @@ class Beeper:
         *,
         left: bool = False,
         right: bool = False,
+        left_gain: float | None = None,
+        right_gain: float | None = None,
         silence_after_s: float = 0.0,
     ) -> None:
         """Write one stereo beep plus silence to aplay stdin."""
-        if left and right:
+        if left_gain is not None or right_gain is not None:
+            if left_gain is None or right_gain is None:
+                raise ValueError("left_gain and right_gain must be provided together")
+            data = self._pcm_for_gains(left_gain=left_gain, right_gain=right_gain)
+        elif left and right:
             data = self._both_beep_pcm
         elif left:
             data = self._left_beep_pcm
@@ -127,6 +134,15 @@ class Beeper:
                 print(f"[beep] aplay exited immediately with code {proc.returncode}")
         return proc
 
+    def _pcm_for_gains(self, *, left_gain: float, right_gain: float) -> bytes:
+        gains = (_clamp_gain(left_gain), _clamp_gain(right_gain))
+        if gains not in self._pcm_cache:
+            self._pcm_cache[gains] = _make_beep_pcm(
+                left_gain=gains[0],
+                right_gain=gains[1],
+            )
+        return self._pcm_cache[gains]
+
     def _terminate(self) -> None:
         proc = self._proc
         self._proc = None
@@ -166,6 +182,10 @@ def _read_process_stderr(proc: subprocess.Popen | None) -> str:
         return proc.stderr.read().decode("utf-8", errors="replace").strip()
     except Exception:
         return ""
+
+
+def _clamp_gain(value: float) -> float:
+    return max(0.0, min(1.0, value))
 
 
 def _make_beep_pcm(*, left_gain: float, right_gain: float) -> bytes:

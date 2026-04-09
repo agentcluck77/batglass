@@ -34,27 +34,35 @@ class ProximitySensor:
         self._last_distance: float | None = None
         self._event = threading.Event()
         self._measure_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._measuring = False
 
         self._cb = lgpio.callback(self._chip, self._echo, lgpio.BOTH_EDGES, self._edge)
 
     def _edge(self, chip: int, gpio: int, level: int, tick: int) -> None:
-        if level == 1:
-            self._rise_tick = tick
-            self._event.clear()
-        elif level == 0 and self._rise_tick is not None:
-            pulse_ns = tick - self._rise_tick
-            distance_cm = round((pulse_ns / 1e9) * (_SPEED_OF_SOUND_CM_PER_S / 2), 2)
-            self._rise_tick = None
-            if _MIN_VALID_DISTANCE_CM <= distance_cm <= self._max_distance_cm:
-                self._last_distance = distance_cm
-                self._event.set()
+        with self._state_lock:
+            if not self._measuring:
+                return
+
+            if level == 1:
+                self._rise_tick = tick
+                self._event.clear()
+            elif level == 0 and self._rise_tick is not None:
+                pulse_ns = tick - self._rise_tick
+                distance_cm = round((pulse_ns / 1e9) * (_SPEED_OF_SOUND_CM_PER_S / 2), 2)
+                self._rise_tick = None
+                if _MIN_VALID_DISTANCE_CM <= distance_cm <= self._max_distance_cm:
+                    self._last_distance = distance_cm
+                    self._event.set()
 
     def get_distance(self) -> float | None:
         """Return distance in cm, or None on timeout."""
         with self._measure_lock:
-            self._event.clear()
-            self._rise_tick = None
-            self._last_distance = None
+            with self._state_lock:
+                self._event.clear()
+                self._rise_tick = None
+                self._last_distance = None
+                self._measuring = True
 
             lgpio.gpio_write(self._chip, self._trig, 0)
             time.sleep(0.000002)
@@ -62,9 +70,14 @@ class ProximitySensor:
             time.sleep(0.00001)
             lgpio.gpio_write(self._chip, self._trig, 0)
 
-            if self._event.wait(timeout=self._timeout_s):
-                return self._last_distance
-            return None
+            got_distance = self._event.wait(timeout=self._timeout_s)
+            with self._state_lock:
+                distance = self._last_distance if got_distance else None
+                self._rise_tick = None
+                self._last_distance = None
+                self._measuring = False
+                self._event.clear()
+                return distance
 
     def close(self) -> None:
         self._cb.cancel()
