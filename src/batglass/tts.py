@@ -17,6 +17,8 @@ _APLAY_CHANNELS = 2
 _HP_NUMID = 11
 _SPK_NUMID = 13
 _HP_SPK_DEFAULT = 127
+_STREAM_FLUSH_MIN_TOKENS = 12
+_STREAM_FLUSH_MIN_CHARS = 48
 
 
 class TtsSpeaker:
@@ -54,20 +56,34 @@ class TtsSpeaker:
     def speak_stream(self, token_iter: Iterator[str]) -> None:
         """Play a stream of tokens, speaking sentence by sentence.
 
-        Starts audio after the first sentence boundary so TTS overlaps
-        VLM generation — the user hears the first sentence while the
-        VLM is still producing the second.
+        Starts audio once a chunk is large enough to sound natural, or
+        earlier at sentence boundaries, so TTS overlaps VLM generation.
         """
         with AUDIO_OUTPUT_LOCK:
+            print("[tts] stream pipeline starting")
             piper, aplay, pipe_thread = self._start_pipeline()
+            print("[tts] stream pipeline ready")
 
             buf: list[str] = []
+            token_count = 0
+            saw_token = False
             try:
                 for token in token_iter:
+                    if not saw_token:
+                        saw_token = True
+                        print("[tts] first token ready for speech")
                     buf.append(token)
-                    if any(c in token for c in ".!?\n"):
-                        sentence = "".join(buf).strip()
+                    token_count += 1
+                    text = "".join(buf).strip()
+                    should_flush = (
+                        any(c in token for c in ".!?\n")
+                        or token_count >= _STREAM_FLUSH_MIN_TOKENS
+                        or len(text) >= _STREAM_FLUSH_MIN_CHARS
+                    )
+                    if should_flush and text:
+                        sentence = text
                         buf.clear()
+                        token_count = 0
                         if sentence:
                             piper.stdin.write((sentence + " ").encode())
                             piper.stdin.flush()
@@ -75,6 +91,8 @@ class TtsSpeaker:
                 if remainder:
                     piper.stdin.write(remainder.encode())
                     piper.stdin.flush()
+                if not saw_token:
+                    print("[tts] token stream ended with no output")
             except BrokenPipeError:
                 pass
             finally:

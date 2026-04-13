@@ -72,7 +72,7 @@ class HailoVlmRunner:
 
         *image_path* can be a file path or a numpy BGR frame from OpenCV.
         """
-        frame = self._load_image(image_path)
+        frame = self.preprocess_image(image_path)
         messages = [
             {
                 "role": "system",
@@ -88,6 +88,7 @@ class HailoVlmRunner:
         ]
 
         n = max_tokens or self._max_tokens
+        print(f"[hailo_vlm] generate start max_tokens={n}")
         # Clear any leftover context from a previous call before starting
         try:
             self._vlm.clear_context()
@@ -101,11 +102,17 @@ class HailoVlmRunner:
                 seed=self._seed,
                 max_generated_tokens=n,
             ) as generation:
+                saw_output = False
                 for chunk in generation:
+                    if not saw_output:
+                        saw_output = True
+                        print("[hailo_vlm] first token received")
                     # Strip Qwen end tokens
                     clean = chunk.split("<|im_end|>")[0]
                     if clean:
                         yield clean
+                if not saw_output:
+                    print("[hailo_vlm] generation finished with no output")
         finally:
             self._vlm.clear_context()
 
@@ -122,8 +129,8 @@ class HailoVlmRunner:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _load_image(source: str | Path | np.ndarray) -> np.ndarray:
-        """Load and preprocess image to 336×336 RGB."""
+    def preprocess_image(source: str | Path | np.ndarray) -> np.ndarray:
+        """Load and preprocess image to the exact RGB tensor image sent to the VLM."""
         if isinstance(source, np.ndarray):
             img = source
         else:
@@ -135,11 +142,16 @@ class HailoVlmRunner:
         if img.ndim == 3 and img.shape[2] == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Scale to cover 336×336 then centre-crop
+        # Crop to the largest centered square so all 336x336 pixels carry image
+        # content instead of black letterbox bars. This improves effective detail
+        # density for OCR and scene descriptions on 4:3 captures.
         h, w = img.shape[:2]
-        scale = max(_IMAGE_SIZE / w, _IMAGE_SIZE / h)
-        new_w, new_h = int(w * scale), int(h * scale)
-        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        x = (new_w - _IMAGE_SIZE) // 2
-        y = (new_h - _IMAGE_SIZE) // 2
-        return img[y:y + _IMAGE_SIZE, x:x + _IMAGE_SIZE].astype(np.uint8)
+        side = min(h, w)
+        x = max(0, (w - side) // 2)
+        y = max(0, (h - side) // 2)
+        cropped = img[y:y + side, x:x + side]
+        return cv2.resize(
+            cropped,
+            (_IMAGE_SIZE, _IMAGE_SIZE),
+            interpolation=cv2.INTER_LINEAR,
+        ).astype(np.uint8)

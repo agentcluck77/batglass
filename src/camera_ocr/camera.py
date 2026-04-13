@@ -18,6 +18,11 @@ try:
 except ImportError:  # pragma: no cover - runtime dependency check
     Picamera2 = None
 
+try:
+    from libcamera import controls as libcamera_controls
+except ImportError:  # pragma: no cover - runtime dependency check
+    libcamera_controls = None
+
 
 class CameraSource(Protocol):
     output_is_rgb: bool
@@ -42,13 +47,17 @@ class Picamera2Source:
         self,
         width: int,
         height: int,
-        warmup_seconds: float = 1.0,
+        warmup_seconds: float = 1.8,
         autofocus_enabled: bool = True,
+        autofocus_settle_seconds: float = 0.35,
+        autofocus_retries: int = 2,
     ):
         self._width = width
         self._height = height
         self._warmup_seconds = warmup_seconds
         self._autofocus_enabled = autofocus_enabled
+        self._autofocus_settle_seconds = autofocus_settle_seconds
+        self._autofocus_retries = autofocus_retries
         self._autofocus_available = False
         self._picam2 = None
         self._started = False
@@ -69,7 +78,8 @@ class Picamera2Source:
             self._started = True
             self._autofocus_available = self._detect_autofocus()
             if self._autofocus_available:
-                self._run_autofocus_cycle(reason="startup")
+                self._enable_continuous_autofocus()
+                self._run_autofocus_with_retries(reason="startup")
         except IndexError as exc:
             self._safe_close()
             raise RuntimeError(
@@ -88,7 +98,7 @@ class Picamera2Source:
         if not self._started or self._picam2 is None:
             raise RuntimeError("Camera is not started")
         if autofocus and self._autofocus_available:
-            self._run_autofocus_cycle(reason="capture")
+            self._run_autofocus_with_retries(reason="capture")
         return self._picam2.capture_array("main")
 
     def stop(self) -> None:
@@ -122,25 +132,53 @@ class Picamera2Source:
             return False
         return True
 
-    def _run_autofocus_cycle(self, reason: str) -> None:
-        if self._picam2 is None:
+    def _enable_continuous_autofocus(self) -> None:
+        if (
+            self._picam2 is None
+            or libcamera_controls is None
+            or not hasattr(self._picam2, "set_controls")
+        ):
             return
+
+        try:
+            self._picam2.set_controls({"AfMode": libcamera_controls.AfModeEnum.Continuous})
+            time.sleep(0.2)
+        except Exception as exc:
+            print(f"[camera] failed to enable continuous autofocus ({exc})")
+
+    def _run_autofocus_with_retries(self, reason: str) -> None:
+        attempts = max(1, self._autofocus_retries + 1)
+        for attempt in range(1, attempts + 1):
+            ok, metadata = self._run_autofocus_cycle(reason=reason)
+            if ok:
+                if reason == "startup" or attempt > 1:
+                    print(
+                        f"[camera] autofocus {reason}: "
+                        f"ok={ok} state={metadata.get('AfState')} "
+                        f"lens={metadata.get('LensPosition')} attempt={attempt}/{attempts}"
+                    )
+                return
+            print(
+                f"[camera] autofocus {reason}: "
+                f"ok={ok} state={metadata.get('AfState')} "
+                f"lens={metadata.get('LensPosition')} attempt={attempt}/{attempts}"
+            )
+            time.sleep(self._autofocus_settle_seconds)
+
+    def _run_autofocus_cycle(self, reason: str) -> tuple[bool, dict]:
+        if self._picam2 is None:
+            return False, {}
 
         try:
             ok = bool(self._picam2.autofocus_cycle(wait=True))
         except Exception as exc:
             print(f"[camera] autofocus {reason} failed ({exc})")
             self._autofocus_available = False
-            return
+            return False, {}
 
-        if reason != "startup" and ok:
-            return
-
+        time.sleep(self._autofocus_settle_seconds)
         metadata = self._picam2.capture_metadata()
-        print(
-            f"[camera] autofocus {reason}: "
-            f"ok={ok} state={metadata.get('AfState')} lens={metadata.get('LensPosition')}"
-        )
+        return ok, metadata
 
     def preview(self) -> int:
         if cv2 is None:

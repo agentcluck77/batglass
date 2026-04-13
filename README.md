@@ -79,6 +79,14 @@ Project-local launcher with the required Hailo environment:
 ./run_buttons.sh
 ```
 
+Systemd service for boot-time startup as `aloysius`:
+
+```bash
+sudo cp /home/aloysius/batglass/batglass.service /etc/systemd/system/batglass.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now batglass.service
+```
+
 Equivalent direct invocation:
 
 ```bash

@@ -13,6 +13,11 @@ import lgpio
 _nullcontext = contextlib.nullcontext
 
 from batglass.tts import TtsSpeaker
+from buttons.artifacts import (
+    save_button_artifact,
+    save_button_frame,
+    save_upscaled_artifact,
+)
 from camera_ocr.camera import Picamera2Source, to_bgr
 
 # -- config -------------------------------------------------------------------
@@ -27,7 +32,7 @@ SCENE_PROMPT = (
     "Focus first on any immediate dangers or obstacles such as steps, kerbs, traffic, "
     "wet floors, or moving objects. Then briefly describe the surroundings."
 )
-MAX_TOKENS = 60
+MAX_TOKENS = 40
 
 
 class SceneButton:
@@ -63,12 +68,35 @@ class SceneButton:
         t_cap = time.perf_counter() - t0
         print(f"[scene_button] captured in {1000*t_cap:.0f}ms — running VLM inference...")
 
-        image_path = Path("/tmp/batglass_scene_btn.jpg")
-        cv2.imwrite(str(image_path), frame_bgr)
+        try:
+            image_path = save_button_frame(frame_bgr, "scene", "button_scene")
+            print(f"[scene_button] saved frame: {image_path}")
+        except Exception as exc:
+            print(f"[scene_button] failed to save frame: {exc}")
+            image_path = frame_bgr
+        self._save_vlm_input(image_path)
         tokens = self._vlm.run(image_path=image_path, prompt=SCENE_PROMPT, max_tokens=MAX_TOKENS)
         print("[scene_button] streaming TTS")
         self._tts.speak_stream(_tee_tokens(tokens, "[scene_button] text:"))
         print(f"[scene_button] done ({time.perf_counter()-t0:.1f}s total)")
+
+    def _save_vlm_input(self, image_source) -> None:
+        preprocess = getattr(self._vlm, "preprocess_image", None)
+        if preprocess is None:
+            return
+        try:
+            vlm_rgb = preprocess(image_source)
+            vlm_bgr = cv2.cvtColor(vlm_rgb, cv2.COLOR_RGB2BGR)
+            saved_vlm = save_button_artifact(vlm_bgr, "scene", "button_scene_vlm_input")
+            print(f"[scene_button] saved VLM input: {saved_vlm}")
+            saved_preview = save_upscaled_artifact(
+                vlm_bgr,
+                "scene",
+                "button_scene_vlm_input_preview",
+            )
+            print(f"[scene_button] saved VLM input preview: {saved_preview}")
+        except Exception as exc:
+            print(f"[scene_button] failed to save VLM input: {exc}")
 
 
 def _tee_tokens(tokens, label: str):

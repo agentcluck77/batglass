@@ -22,6 +22,7 @@ MIXER_CONTROL = "Playback"
 VOLUME_STEP_DB = 2
 PLAYBACK_DB_PER_RAW_STEP = 0.5
 VOLUME_STEP_RAW = int(round(VOLUME_STEP_DB / PLAYBACK_DB_PER_RAW_STEP))
+DEFAULT_STARTUP_VOLUME_PERCENT = 60
 # -----------------------------------------------------------------------------
 
 
@@ -150,6 +151,24 @@ def _format_volume(level: MixerLevel) -> str:
         parts.append(f"{level.db:.1f} dB")
     parts.append(f"raw {level.raw}/{level.raw_max}")
     return " | ".join(parts)
+
+
+def set_startup_volume(percent: int = DEFAULT_STARTUP_VOLUME_PERCENT) -> MixerLevel | None:
+    target = max(0, min(100, percent))
+    mixer_card = _resolve_mixer_card(MIXER_CARD_NAME)
+    subprocess.run(
+        ["amixer", "-c", mixer_card, "set", MIXER_CONTROL, f"{target}%"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    updated = subprocess.run(
+        ["amixer", "-c", mixer_card, "get", MIXER_CONTROL],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return _parse_mixer_level(updated.stdout)
 
 
 def _resolve_mixer_card(card_name: str) -> str:

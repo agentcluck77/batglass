@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import faulthandler
 import signal
 import sys
 import threading
@@ -22,34 +23,45 @@ from buttons.beep_button import BeepButton
 from buttons.ocr_button import OcrButton
 from buttons.scene_button import SceneButton
 from buttons.volume_button import (
+    DEFAULT_STARTUP_VOLUME_PERCENT,
     VOLUME_DOWN_PIN,
     VOLUME_STEP_DB,
     VOLUME_UP_PIN,
     VolumeButton,
+    set_startup_volume,
 )
 from proximity.beep import Beeper
 
+CAMERA_WIDTH = 2592
+CAMERA_HEIGHT = 1944
+
 
 def main() -> None:
+    faulthandler.enable(all_threads=True)
+    faulthandler.register(signal.SIGUSR1, file=sys.stderr, all_threads=True)
+
+    try:
+        startup_level = set_startup_volume(DEFAULT_STARTUP_VOLUME_PERCENT)
+    except Exception as exc:
+        print(f"[buttons] failed to set startup volume: {exc}")
+    else:
+        if startup_level is None:
+            print(
+                f"[buttons] startup volume set to {DEFAULT_STARTUP_VOLUME_PERCENT}%"
+            )
+        else:
+            print(f"[buttons] startup volume -> {startup_level.percent}%")
+
     # Single shared camera + lock so OCR and scene don't conflict
-    camera = Picamera2Source(width=1280, height=720)
+    camera = Picamera2Source(width=CAMERA_WIDTH, height=CAMERA_HEIGHT)
     camera.start()
     camera_lock = threading.Lock()
 
-    # Single shared VLM — the Hailo chip only supports one VDevice owner
-    try:
-        from batglass.hailo_vlm import HailoVlmRunner
-        vlm = HailoVlmRunner()
-        print("[buttons] VLM backend=hailo (shared)")
-    except Exception as e:
-        print(f"[buttons] Hailo VLM unavailable ({e}), falling back to CPU VLM")
-        from batglass.vlm import VlmRunner
-        from pathlib import Path
-        root = Path(__file__).resolve().parents[2]
-        vlm = VlmRunner(
-            model=root / "models/moondream2/moondream2-text-model-f16_ct-vicuna.gguf",
-            mmproj=root / "models/moondream2/moondream2-mmproj-f16-20250414.gguf",
-        )
+    # Single shared VLM — Hailo-only, fail fast if the accelerator is unavailable.
+    from batglass.hailo_vlm import HailoVlmRunner
+
+    vlm = HailoVlmRunner()
+    print("[buttons] VLM backend=hailo (shared)")
 
     feedback_beeper = Beeper()
     beep_btn  = BeepButton()
