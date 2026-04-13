@@ -35,13 +35,15 @@ class ProximitySensor:
         self._event = threading.Event()
         self._measure_lock = threading.Lock()
         self._state_lock = threading.Lock()
+        self._close_lock = threading.Lock()
         self._measuring = False
+        self._closed = False
 
         self._cb = lgpio.callback(self._chip, self._echo, lgpio.BOTH_EDGES, self._edge)
 
     def _edge(self, chip: int, gpio: int, level: int, tick: int) -> None:
         with self._state_lock:
-            if not self._measuring:
+            if self._closed or not self._measuring:
                 return
 
             if level == 1:
@@ -59,16 +61,26 @@ class ProximitySensor:
         """Return distance in cm, or None on timeout."""
         with self._measure_lock:
             with self._state_lock:
+                if self._closed:
+                    return None
                 self._event.clear()
                 self._rise_tick = None
                 self._last_distance = None
                 self._measuring = True
 
-            lgpio.gpio_write(self._chip, self._trig, 0)
-            time.sleep(0.000002)
-            lgpio.gpio_write(self._chip, self._trig, 1)
-            time.sleep(0.00001)
-            lgpio.gpio_write(self._chip, self._trig, 0)
+            try:
+                lgpio.gpio_write(self._chip, self._trig, 0)
+                time.sleep(0.000002)
+                lgpio.gpio_write(self._chip, self._trig, 1)
+                time.sleep(0.00001)
+                lgpio.gpio_write(self._chip, self._trig, 0)
+            except lgpio.error:
+                with self._state_lock:
+                    self._measuring = False
+                    self._event.clear()
+                    if self._closed:
+                        return None
+                raise
 
             got_distance = self._event.wait(timeout=self._timeout_s)
             with self._state_lock:
@@ -80,5 +92,14 @@ class ProximitySensor:
                 return distance
 
     def close(self) -> None:
-        self._cb.cancel()
-        lgpio.gpiochip_close(self._chip)
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            with self._state_lock:
+                self._measuring = False
+                self._rise_tick = None
+                self._last_distance = None
+                self._event.set()
+            self._cb.cancel()
+            lgpio.gpiochip_close(self._chip)

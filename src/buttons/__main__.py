@@ -36,8 +36,8 @@ from buttons.volume_button import (
 )
 from proximity.beep import Beeper
 
-CAMERA_WIDTH = 2592
-CAMERA_HEIGHT = 1944
+CAMERA_WIDTH = 1640
+CAMERA_HEIGHT = 1232
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -93,19 +93,17 @@ def main() -> None:
         camera = _UnavailableCamera(str(exc))
     camera_lock = threading.Lock()
 
-    # Single shared Gemini vision client for scene description and OCR.
-    from batglass.gemini_vlm import GeminiVlmRunner
+    # Single shared Gemini Live runner for scene description and OCR.
+    from batglass.gemini_live import GeminiLiveRunner
 
-    gemini_cfg = cfg.get("gemini", {})
-    model = gemini_cfg.get("model", "gemini-3.1-flash-lite-preview")
-    vlm = GeminiVlmRunner(model=model)
-    print(f"[buttons] VLM backend=gemini model={model} (shared)")
+    live = GeminiLiveRunner()
+    print(f"[buttons] live backend=GeminiLive model=gemini-2.0-flash-live-001 (shared)")
 
     feedback_beeper = Beeper()
     try:
         beep_btn  = BeepButton(beeper=feedback_beeper)
-        ocr_btn   = OcrButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
-        scene_btn = SceneButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
+        ocr_btn   = OcrButton(camera=camera, camera_lock=camera_lock, live=live)
+        scene_btn = SceneButton(camera=camera, camera_lock=camera_lock, live=live)
         volume_up_btn = VolumeButton(
             pin=VOLUME_UP_PIN,
             delta_db=VOLUME_STEP_DB,
@@ -118,9 +116,7 @@ def main() -> None:
         )
     except lgpio.error as exc:
         detail = str(exc)
-        release = getattr(vlm, "release", None)
-        if callable(release):
-            release()
+        live.release()
         camera.stop()
         if "GPIO busy" in detail:
             raise SystemExit(
@@ -128,6 +124,7 @@ def main() -> None:
                 "Stop `batglass.service` or terminate the existing `python -m buttons.__main__` process first."
             )
         raise SystemExit(f"[buttons] failed to claim GPIO inputs: {detail}")
+
     threads = [
         threading.Thread(target=beep_btn.run,  name="beep",  daemon=True),
         threading.Thread(target=ocr_btn.run,   name="ocr",   daemon=True),
@@ -143,9 +140,7 @@ def main() -> None:
 
     def _shutdown(sig, frame):
         print("\n[buttons] shutting down")
-        release = getattr(vlm, "release", None)
-        if callable(release):
-            release()
+        live.release()
         camera.stop()
         sys.exit(0)
 

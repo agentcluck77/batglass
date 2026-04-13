@@ -70,6 +70,7 @@ class EcholocationController:
     ) -> None:
         self._beeper = beeper or Beeper()
         self._stop_event = threading.Event()
+        self._close_lock = threading.Lock()
         self._closed = False
         self._states = [
             SensorState(
@@ -113,9 +114,12 @@ class EcholocationController:
         self._stop_event.set()
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+
+        self._stop_event.set()
         for state in self._states:
             state.sensor.close()
         self._beeper.close()
@@ -227,7 +231,6 @@ class EcholocationController:
         self._beeper.beep(
             left_gain=left_gain,
             right_gain=right_gain,
-            silence_after_s=gap_s,
         )
         played_at = time.monotonic()
         self._next_beep_at = played_at + _BEEP_DURATION_S + gap_s

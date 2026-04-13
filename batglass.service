@@ -1,19 +1,33 @@
 [Unit]
 Description=BatGlass smart glasses daemon
-After=network.target
+# network.target = networking stack is up; intentionally not network-online.target
+# so buttons work immediately on boot even without Wi-Fi.
+# Live API requests should fail gracefully per button press when offline.
+After=sound.target network.target
+Wants=sound.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-User=aloysius
-WorkingDirectory=/home/aloysius/batglass
+User=aloy
+WorkingDirectory=/home/aloy/batglass
+
+# Load API keys from the project .env (GEMINI_API_KEY, etc.)
+EnvironmentFile=-/home/aloy/batglass/.env
 Environment=PYTHONUNBUFFERED=1
-Environment=PATH=/home/aloysius/batglass/llama.cpp/build/bin:/home/aloysius/batglass/whisper.cpp/build/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStartPre=-/usr/bin/pkill -u aloysius -f "/home/aloysius/batglass/.venv/bin/python -m buttons.__main__"
-ExecStart=/home/aloysius/batglass/run_buttons.sh
-Restart=on-failure
-RestartSec=5
+
+# Kill any stale process from a previous unclean shutdown before starting.
+ExecStartPre=-/usr/bin/pkill -u aloy -f "python -m buttons.__main__"
+ExecStart=/home/aloy/batglass/run_buttons.sh
+
+# Restart always so clean exits, crashes, and transient failures all recover.
+Restart=always
+RestartSec=10
+
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=batglass
 
 [Install]
 WantedBy=multi-user.target

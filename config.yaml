@@ -10,7 +10,7 @@ scene:
   max_tokens: 60
 
 tts:
-  model: models/piper/en_US-lessac-medium.onnx
+  model: models/piper/en_US-ryan-low.onnx
   audio_device: plughw:wm8960soundcard
 
 stt:

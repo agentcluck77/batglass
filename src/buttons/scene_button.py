@@ -12,7 +12,6 @@ import yaml
 
 _nullcontext = contextlib.nullcontext
 
-from batglass.tts import TtsSpeaker
 from buttons.artifacts import save_button_frame
 from camera_ocr.camera import Picamera2Source, to_bgr
 
@@ -20,7 +19,6 @@ from camera_ocr.camera import Picamera2Source, to_bgr
 BUTTON_PIN = 17
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-TTS_MODEL    = PROJECT_ROOT / "models/piper/en_US-lessac-medium.onnx"
 # -----------------------------------------------------------------------------
 
 
@@ -35,24 +33,20 @@ def _load_config() -> dict:
 SCENE_PROMPT = (
     "You are assisting a blind person. Describe this scene in two sentences or fewer. "
     "Focus first on any immediate dangers or obstacles such as steps, kerbs, traffic, "
-    "wet floors, or moving objects. Then briefly describe the surroundings."
+    "wet floors, or moving objects. Then briefly describe the surroundings. "
+    "Speak naturally and directly — no preamble."
 )
-MAX_TOKENS = 40
 
 
 class SceneButton:
-    def __init__(self, chip: int = 0, camera=None, camera_lock=None, vlm=None) -> None:
-        cfg = _load_config()
-        scene_cfg = cfg.get("scene", {})
-        self._max_tokens = int(scene_cfg.get("max_tokens", MAX_TOKENS))
-        self._tts = TtsSpeaker(model=TTS_MODEL)
+    def __init__(self, chip: int = 0, camera=None, camera_lock=None, live=None) -> None:
+        self._live = live
         self._camera = camera or Picamera2Source(width=1280, height=720)
         self._camera_lock = camera_lock
         self._owns_camera = camera is None
         self._chip = lgpio.gpiochip_open(chip)
         lgpio.gpio_claim_input(self._chip, BUTTON_PIN, lgpio.SET_PULL_UP)
-        self._vlm = vlm
-        print(f"[scene_button] backend={type(vlm).__name__ if vlm else 'none'}")
+        print(f"[scene_button] backend={type(live).__name__ if live else 'none'}")
 
     def run(self) -> None:
         print(f"[scene_button] listening on GPIO {BUTTON_PIN} — press to describe scene")
@@ -75,52 +69,29 @@ class SceneButton:
                 frame = self._camera.capture_frame()
         except Exception as exc:
             print(f"[scene_button] capture failed: {exc}")
-            self._tts.speak("The camera is not available right now.")
             return
         frame_bgr = to_bgr(frame, input_is_rgb=getattr(self._camera, "output_is_rgb", False))
-        t_cap = time.perf_counter() - t0
-        print(f"[scene_button] captured in {1000*t_cap:.0f}ms — running Gemini inference...")
+        t_cap = time.perf_counter()
+        print(f"[scene_button] capture={1000*(t_cap-t0):.0f}ms")
 
+        t_save0 = time.perf_counter()
         try:
             image_path = save_button_frame(frame_bgr, "scene", "button_scene")
-            print(f"[scene_button] saved frame: {image_path}")
         except Exception as exc:
             print(f"[scene_button] failed to save frame: {exc}")
             image_path = frame_bgr
-        if self._vlm is None:
-            self._tts.speak("Gemini is not available.")
+        print(f"[scene_button] save={1000*(time.perf_counter()-t_save0):.0f}ms")
+
+        if self._live is None:
+            print("[scene_button] no live runner configured")
             return
 
-        def _gemini_tokens():
-            saw_output = False
-            try:
-                for token in self._vlm.run(
-                    image_path=image_path,
-                    prompt=SCENE_PROMPT,
-                    max_tokens=self._max_tokens,
-                ):
-                    saw_output = True
-                    yield token
-            except Exception as exc:
-                print(f"[scene_button] Gemini request failed: {exc}")
-                if not saw_output:
-                    yield "I could not describe the scene right now."
-                return
-
-            if not saw_output:
-                yield "I could not describe the scene right now."
-
-        print("[scene_button] streaming TTS")
-        self._tts.speak_stream(_tee_tokens(_gemini_tokens(), "[scene_button] text:"))
-        print(f"[scene_button] done ({time.perf_counter()-t0:.1f}s total)")
-
-
-def _tee_tokens(tokens, label: str):
-    buf = []
-    for tok in tokens:
-        buf.append(tok)
-        yield tok
-    print(f"{label} {''.join(buf)!r}")
+        t_live0 = time.perf_counter()
+        try:
+            self._live.speak_image(image_path, SCENE_PROMPT)
+        except Exception as exc:
+            print(f"[scene_button] live request failed: {exc}")
+        print(f"[scene_button] live={1000*(time.perf_counter()-t_live0):.0f}ms  total={1000*(time.perf_counter()-t0):.0f}ms")
 
 
 def _button_pressed(chip: int, pin: int, debounce: float = 0.05) -> bool:
