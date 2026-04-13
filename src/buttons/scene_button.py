@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GPIO 17 — Scene button: press to describe surroundings for a blind person."""
+"""GPIO 17 — Scene button: press to describe surroundings with Gemini."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 import contextlib
 import cv2
 import lgpio
+import yaml
 
 _nullcontext = contextlib.nullcontext
 
@@ -27,6 +28,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TTS_MODEL    = PROJECT_ROOT / "models/piper/en_US-lessac-medium.onnx"
 # -----------------------------------------------------------------------------
 
+
+def _load_config() -> dict:
+    cfg_path = PROJECT_ROOT / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
 SCENE_PROMPT = (
     "You are assisting a blind person. Describe this scene in two sentences or fewer. "
     "Focus first on any immediate dangers or obstacles such as steps, kerbs, traffic, "
@@ -37,6 +47,9 @@ MAX_TOKENS = 40
 
 class SceneButton:
     def __init__(self, chip: int = 0, camera=None, camera_lock=None, vlm=None) -> None:
+        cfg = _load_config()
+        scene_cfg = cfg.get("scene", {})
+        self._max_tokens = int(scene_cfg.get("max_tokens", MAX_TOKENS))
         self._tts = TtsSpeaker(model=TTS_MODEL)
         self._camera = camera or Picamera2Source(width=1280, height=720)
         self._camera_lock = camera_lock
@@ -44,7 +57,7 @@ class SceneButton:
         self._chip = lgpio.gpiochip_open(chip)
         lgpio.gpio_claim_input(self._chip, BUTTON_PIN, lgpio.SET_PULL_UP)
         self._vlm = vlm
-        print(f"[scene_button] VLM backend={type(vlm).__name__ if vlm else 'none'}")
+        print(f"[scene_button] backend={type(vlm).__name__ if vlm else 'none'}")
 
     def run(self) -> None:
         print(f"[scene_button] listening on GPIO {BUTTON_PIN} — press to describe scene")
@@ -62,11 +75,16 @@ class SceneButton:
 
     def _handle(self) -> None:
         t0 = time.perf_counter()
-        with self._camera_lock if self._camera_lock else _nullcontext():
-            frame = self._camera.capture_frame()
+        try:
+            with self._camera_lock if self._camera_lock else _nullcontext():
+                frame = self._camera.capture_frame()
+        except Exception as exc:
+            print(f"[scene_button] capture failed: {exc}")
+            self._tts.speak("The camera is not available right now.")
+            return
         frame_bgr = to_bgr(frame, input_is_rgb=getattr(self._camera, "output_is_rgb", False))
         t_cap = time.perf_counter() - t0
-        print(f"[scene_button] captured in {1000*t_cap:.0f}ms — running VLM inference...")
+        print(f"[scene_button] captured in {1000*t_cap:.0f}ms — running Gemini inference...")
 
         try:
             image_path = save_button_frame(frame_bgr, "scene", "button_scene")
@@ -74,29 +92,55 @@ class SceneButton:
         except Exception as exc:
             print(f"[scene_button] failed to save frame: {exc}")
             image_path = frame_bgr
-        self._save_vlm_input(image_path)
-        tokens = self._vlm.run(image_path=image_path, prompt=SCENE_PROMPT, max_tokens=MAX_TOKENS)
+        self._save_gemini_input(image_path)
+        if self._vlm is None:
+            self._tts.speak("Gemini is not available.")
+            return
+
+        def _gemini_tokens():
+            saw_output = False
+            try:
+                for token in self._vlm.run(
+                    image_path=image_path,
+                    prompt=SCENE_PROMPT,
+                    max_tokens=self._max_tokens,
+                ):
+                    saw_output = True
+                    yield token
+            except Exception as exc:
+                print(f"[scene_button] Gemini request failed: {exc}")
+                if not saw_output:
+                    yield "I could not describe the scene right now."
+                return
+
+            if not saw_output:
+                yield "I could not describe the scene right now."
+
         print("[scene_button] streaming TTS")
-        self._tts.speak_stream(_tee_tokens(tokens, "[scene_button] text:"))
+        self._tts.speak_stream(_tee_tokens(_gemini_tokens(), "[scene_button] text:"))
         print(f"[scene_button] done ({time.perf_counter()-t0:.1f}s total)")
 
-    def _save_vlm_input(self, image_source) -> None:
+    def _save_gemini_input(self, image_source) -> None:
         preprocess = getattr(self._vlm, "preprocess_image", None)
         if preprocess is None:
             return
         try:
-            vlm_rgb = preprocess(image_source)
-            vlm_bgr = cv2.cvtColor(vlm_rgb, cv2.COLOR_RGB2BGR)
-            saved_vlm = save_button_artifact(vlm_bgr, "scene", "button_scene_vlm_input")
-            print(f"[scene_button] saved VLM input: {saved_vlm}")
-            saved_preview = save_upscaled_artifact(
-                vlm_bgr,
+            gemini_rgb = preprocess(image_source)
+            gemini_bgr = cv2.cvtColor(gemini_rgb, cv2.COLOR_RGB2BGR)
+            saved_gemini = save_button_artifact(
+                gemini_bgr,
                 "scene",
-                "button_scene_vlm_input_preview",
+                "button_scene_gemini_input",
             )
-            print(f"[scene_button] saved VLM input preview: {saved_preview}")
+            print(f"[scene_button] saved Gemini input: {saved_gemini}")
+            saved_preview = save_upscaled_artifact(
+                gemini_bgr,
+                "scene",
+                "button_scene_gemini_input_preview",
+            )
+            print(f"[scene_button] saved Gemini input preview: {saved_preview}")
         except Exception as exc:
-            print(f"[scene_button] failed to save VLM input: {exc}")
+            print(f"[scene_button] failed to save Gemini input: {exc}")
 
 
 def _tee_tokens(tokens, label: str):

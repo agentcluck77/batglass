@@ -1,9 +1,9 @@
 # BatGlass
 
-Offline smart glasses software for Raspberry Pi 5. The current stack combines three button-driven features:
+Smart glasses software for Raspberry Pi 5. The current button runtime combines three features:
 
-- scene description via STT + VLM + TTS
-- OCR / text reading via Tesseract with VLM fallback
+- scene description via Gemini + TTS
+- OCR / text reading via Gemini
 - proximity-based audio feedback
 
 ## Hardware
@@ -23,15 +23,15 @@ See [docs/hardware.md](docs/hardware.md) for setup notes and device-specific det
 | `batglass-ocr` | `camera_ocr.cli:main` | OCR camera test CLI |
 | `batglass-snap` | `camera_ocr.snap_cli:main` | Single autofocus still capture + OCR/VLM |
 | `batglass-beep` | `proximity.__main__:main` | Dual-sensor proximity beeps |
-| `batglass-buttons` | `buttons.__main__:main` | Full three-button runtime |
+| `batglass-buttons` | `buttons.__main__:main` | Full button runtime |
 
 ## Button Mapping
 
-- GPIO `17`: hold to ask a scene question, release to process
+- GPIO `17`: tap to describe the current scene
 - GPIO `27`: tap to read visible text aloud
 - GPIO `22`: tap to toggle echolocation beeps
 
-The button stack shares one `Picamera2` instance and one VLM instance across OCR and scene mode. On supported cameras, still captures now run autofocus before capture.
+The button stack shares one `Picamera2` instance and one Gemini client across OCR and scene mode.
 
 ## Quick Start
 
@@ -46,8 +46,6 @@ Install system packages used by the current runtime:
 
 ```bash
 sudo apt install -y \
-  tesseract-ocr \
-  libtesseract-dev \
   python3-picamera2 \
   sox \
   alsa-utils \
@@ -56,12 +54,11 @@ sudo apt install -y \
 
 The full button runtime also expects these tools to be present:
 
-- `whisper-cli` on `PATH`
 - `piper` in the active environment or `.venv/bin/piper`
-- `hailortcli` and HailoRT `5.2.0` for the Hailo VLM path
-- `reference/hailo-apps` checked out locally
+- `GEMINI_API_KEY` in the environment or a project `.env` file
 
-If Hailo is unavailable, `batglass-buttons` falls back to the CPU VLM runner in `src/batglass/vlm.py`.
+Local OCR and local VLM code paths still exist in the repo for older utilities, but `batglass-buttons` no longer wires them into the active runtime.
+If you still use the older camera OCR utilities, install their local dependencies separately, including `tesseract-ocr`.
 
 ## Running
 
@@ -73,7 +70,7 @@ Packaged entry point:
 batglass-buttons
 ```
 
-Project-local launcher with the required Hailo environment:
+Project-local launcher:
 
 ```bash
 ./run_buttons.sh
@@ -90,8 +87,7 @@ sudo systemctl enable --now batglass.service
 Equivalent direct invocation:
 
 ```bash
-PYTHONPATH=src:reference/hailo-apps \
-hailort_version=5.2.0 \
+PYTHONPATH=src \
 .venv/bin/python -m buttons.__main__
 ```
 
@@ -121,16 +117,17 @@ batglass-beep --probe --samples 5
 
 ## Configuration
 
-`config.yaml` controls OCR mode and some runtime parameters. The current keys are:
+`config.yaml` controls Gemini and audio runtime parameters for the button stack. The current keys are:
 
 ```yaml
+gemini:
+  model: gemini-3.1-flash-lite-preview
+
 ocr:
-  engine: vlm   # or: tesseract
-  vlm_fallback_threshold: 20
+  max_tokens: 160
 
 scene:
-  max_hold_duration_s: 30
-  max_tokens: 100
+  max_tokens: 60
 
 tts:
   model: models/piper/en_US-lessac-medium.onnx
@@ -147,10 +144,11 @@ stt:
 ```
 src/
   batglass/
-    hailo_vlm.py    # Hailo-10H Qwen2-VL runner
+    gemini_vlm.py   # Gemini cloud vision runner for buttons
+    hailo_vlm.py    # older Hailo VLM path, no longer wired into buttons
     stt.py          # whisper.cpp wrapper
     tts.py          # Piper -> aplay wrapper
-    vlm.py          # CPU VLM wrapper (llama-mtmd-cli)
+    vlm.py          # older CPU VLM wrapper (llama-mtmd-cli)
     modes/
       ocr.py
       scene.py
@@ -167,7 +165,7 @@ src/
     sensor.py       # HC-SR04 driver
     beep.py         # persistent stereo aplay beeper
     controller.py   # dual-sensor left/right scheduler
-run_buttons.sh      # local launcher with Hailo env
+run_buttons.sh      # local launcher for the button runtime
 batglass.service    # systemd unit
 docs/               # hardware notes and implementation plan
 ```

@@ -11,6 +11,7 @@ version = "0.1.0"
 description = "Smart glasses: OCR camera + proximity beep for Raspberry Pi"
 requires-python = ">=3.11"
 dependencies = [
+    "google-genai",
     "opencv-python>=4.8",
     "pytesseract>=0.3",
     "pillow>=10.0",
