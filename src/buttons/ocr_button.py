@@ -8,18 +8,13 @@ from pathlib import Path
 import re
 
 import contextlib
-import cv2
 import lgpio
 import yaml
 
 _nullcontext = contextlib.nullcontext
 
 from batglass.tts import TtsSpeaker
-from buttons.artifacts import (
-    save_button_artifact,
-    save_button_frame,
-    save_upscaled_artifact,
-)
+from buttons.artifacts import save_button_frame
 from camera_ocr.camera import Picamera2Source, to_bgr
 
 # -- config -------------------------------------------------------------------
@@ -95,8 +90,6 @@ class OcrButton:
         if self._vlm is None:
             self._tts.speak("Gemini is not available.")
             return
-
-        self._save_gemini_input(saved_frame or frame_bgr)
         print(f"[ocr_button] Gemini mode capture={1000*(t_cap-t0):.0f}ms")
         try:
             print("[ocr_button] running Gemini inference...")
@@ -116,60 +109,33 @@ class OcrButton:
         self._tts.speak(cleaned if cleaned != "NO_TEXT" else "No text found.")
         print("[ocr_button] done")
 
-    def _save_gemini_input(self, image_source) -> None:
-        preprocess = getattr(self._vlm, "preprocess_image", None)
-        if preprocess is None:
-            return
-        try:
-            gemini_rgb = preprocess(image_source)
-            gemini_bgr = cv2.cvtColor(gemini_rgb, cv2.COLOR_RGB2BGR)
-            saved_gemini = save_button_artifact(
-                gemini_bgr,
-                "ocr",
-                "button_ocr_gemini_input",
-            )
-            print(f"[ocr_button] saved Gemini input: {saved_gemini}")
-            saved_preview = save_upscaled_artifact(
-                gemini_bgr,
-                "ocr",
-                "button_ocr_gemini_input_preview",
-            )
-            print(f"[ocr_button] saved Gemini input preview: {saved_preview}")
-        except Exception as exc:
-            print(f"[ocr_button] failed to save Gemini input: {exc}")
-
 
 def _collect_tokens(tokens) -> str:
     return "".join(tokens).strip()
 
 
 def _clean_vlm_ocr_text(text: str) -> str:
+    import re
     cleaned = text.strip()
     cleaned = cleaned.split("<|im_end|>", 1)[0].strip()
     cleaned = re.sub(r"```(?:text)?", "", cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(
-        r'^\s*(?:the\s+text\s+(?:visible\s+)?in\s+the\s+image\s+is|visible\s+text|text)\s*:\s*',
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
+        r"^\s*(?:the\s+text\s+(?:visible\s+)?in\s+the\s+image\s+is|visible\s+text|text)\s*:\s*",
+        "", cleaned, flags=re.IGNORECASE,
     ).strip()
     cleaned = re.sub(r"\s*```$", "", cleaned).strip()
-
-    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}: 
         cleaned = cleaned[1:-1].strip()
-
     return cleaned or "NO_TEXT"
 
 
 def _button_pressed(chip: int, pin: int, debounce: float = 0.05) -> bool:
-    """Return True once per press (active-low, waits for release)."""
     if lgpio.gpio_read(chip, pin) != 0:
-        time.sleep(0.01)  # idle sleep to avoid busy-loop
+        time.sleep(0.01)
         return False
     time.sleep(debounce)
     if lgpio.gpio_read(chip, pin) != 0:
         return False
-    # wait for release
     while lgpio.gpio_read(chip, pin) == 0:
         time.sleep(0.01)
     return True

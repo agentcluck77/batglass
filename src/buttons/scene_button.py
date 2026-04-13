@@ -7,18 +7,13 @@ import time
 from pathlib import Path
 
 import contextlib
-import cv2
 import lgpio
 import yaml
 
 _nullcontext = contextlib.nullcontext
 
 from batglass.tts import TtsSpeaker
-from buttons.artifacts import (
-    save_button_artifact,
-    save_button_frame,
-    save_upscaled_artifact,
-)
+from buttons.artifacts import save_button_frame
 from camera_ocr.camera import Picamera2Source, to_bgr
 
 # -- config -------------------------------------------------------------------
@@ -92,7 +87,6 @@ class SceneButton:
         except Exception as exc:
             print(f"[scene_button] failed to save frame: {exc}")
             image_path = frame_bgr
-        self._save_gemini_input(image_path)
         if self._vlm is None:
             self._tts.speak("Gemini is not available.")
             return
@@ -120,31 +114,8 @@ class SceneButton:
         self._tts.speak_stream(_tee_tokens(_gemini_tokens(), "[scene_button] text:"))
         print(f"[scene_button] done ({time.perf_counter()-t0:.1f}s total)")
 
-    def _save_gemini_input(self, image_source) -> None:
-        preprocess = getattr(self._vlm, "preprocess_image", None)
-        if preprocess is None:
-            return
-        try:
-            gemini_rgb = preprocess(image_source)
-            gemini_bgr = cv2.cvtColor(gemini_rgb, cv2.COLOR_RGB2BGR)
-            saved_gemini = save_button_artifact(
-                gemini_bgr,
-                "scene",
-                "button_scene_gemini_input",
-            )
-            print(f"[scene_button] saved Gemini input: {saved_gemini}")
-            saved_preview = save_upscaled_artifact(
-                gemini_bgr,
-                "scene",
-                "button_scene_gemini_input_preview",
-            )
-            print(f"[scene_button] saved Gemini input preview: {saved_preview}")
-        except Exception as exc:
-            print(f"[scene_button] failed to save Gemini input: {exc}")
-
 
 def _tee_tokens(tokens, label: str):
-    """Yield tokens unchanged while printing them to stdout for debugging."""
     buf = []
     for tok in tokens:
         buf.append(tok)
@@ -153,9 +124,8 @@ def _tee_tokens(tokens, label: str):
 
 
 def _button_pressed(chip: int, pin: int, debounce: float = 0.05) -> bool:
-    """Return True once per press (active-low, waits for release)."""
     if lgpio.gpio_read(chip, pin) != 0:
-        time.sleep(0.01)  # idle sleep to avoid busy-loop
+        time.sleep(0.01)
         return False
     time.sleep(debounce)
     if lgpio.gpio_read(chip, pin) != 0:

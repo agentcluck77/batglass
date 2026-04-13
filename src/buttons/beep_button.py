@@ -8,6 +8,7 @@ import time
 
 import lgpio
 
+from proximity.beep import Beeper
 from proximity.controller import EcholocationController
 
 # -- config -------------------------------------------------------------------
@@ -16,10 +17,11 @@ BUTTON_PIN   = 22
 
 
 class BeepButton:
-    def __init__(self, chip: int = 0) -> None:
+    def __init__(self, chip: int = 0, beeper: Beeper | None = None) -> None:
         self._chip = lgpio.gpiochip_open(chip)
         lgpio.gpio_claim_input(self._chip, BUTTON_PIN, lgpio.SET_PULL_UP)
         self._active = False
+        self._beeper = beeper
         self._controller: EcholocationController | None = None
         self._loop_thread: threading.Thread | None = None
 
@@ -41,7 +43,7 @@ class BeepButton:
             print("[beep_button] echolocation OFF")
         else:
             self._active = True
-            self._controller = EcholocationController()
+            self._controller = EcholocationController(beeper=self._beeper)
             print("[beep_button] echolocation ON")
             self._loop_thread = threading.Thread(target=self._run_controller, daemon=True)
             self._loop_thread.start()

@@ -103,7 +103,7 @@ def main() -> None:
 
     feedback_beeper = Beeper()
     try:
-        beep_btn  = BeepButton()
+        beep_btn  = BeepButton(beeper=feedback_beeper)
         ocr_btn   = OcrButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
         scene_btn = SceneButton(camera=camera, camera_lock=camera_lock, vlm=vlm)
         volume_up_btn = VolumeButton(

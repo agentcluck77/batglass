@@ -21,6 +21,8 @@ _BEEP_AMPLITUDE: Final = 0.35
 # they must be set *before* aplay opens the device.
 _HP_NUMID: Final = 11   # Headphone Playback Volume
 _SPK_NUMID: Final = 13  # Speaker Playback Volume
+_OUT_LEFT_NUMID: Final = 52   # Left Output Mixer PCM Playback Switch
+_OUT_RIGHT_NUMID: Final = 55  # Right Output Mixer PCM Playback Switch
 # 127/127 is full hardware output on the WM8960 amplifier path.
 HP_SPK_DEFAULT: Final = 127
 
@@ -268,6 +270,11 @@ def _set_wm8960_output_volumes(device: str, value: int) -> None:
     for numid in (_HP_NUMID, _SPK_NUMID):
         subprocess.run(
             ["amixer", "-c", card, "cset", f"numid={numid}", val_str],
+            capture_output=True,
+        )
+    for numid in (_OUT_LEFT_NUMID, _OUT_RIGHT_NUMID):
+        subprocess.run(
+            ['amixer', '-c', card, 'cset', f'numid={numid}', 'on'],
             capture_output=True,
         )
 
